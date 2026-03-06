@@ -118,9 +118,9 @@ Search demand for "[brand] dealer/store near me" (normalized, STIHL = 100):
 - **Whole Foods**: `/api/stores/{id}/summary` — needs store ID enumeration
 
 ### Hard (WAF/bot protection)
-- **Harbor Freight**: PerimeterX bot detection
-- **Menards**: Imperva/Incapsula WAF
-- **Northern Tool**: Yottaa bot protection (142 stores, IBM WCS API behind WAF)
+- **Harbor Freight**: PerimeterX — API is `api.harborfreight.com/graphql` (Magento GraphQL, `FindStoresNearCoordinates` query), ~1,600 stores. Needs PX cookie bypass.
+- **Menards**: Imperva/Incapsula — API is `menards.com/store-details/locate-stores-by-address.ajx?postalCode={zip}`, ~330 stores. Needs Incapsula cookie warmup (headless Playwright blocked).
+- **Northern Tool**: Yottaa — API is `northerntool.com/wcs/resources/store/6970/storelocator/latitude/{lat}/longitude/{lng}`, 142 stores. Needs Yottaa bypass.
 - **Walmart**: PerimeterX bot detection
 - **Costco**: Akamai WAF
 - **Home Depot**: Akamai BotManager
