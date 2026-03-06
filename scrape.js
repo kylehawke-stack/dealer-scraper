@@ -14,6 +14,7 @@
 import fs from "fs";
 import path from "path";
 import { LAT_LNG_GRID } from "./lat-lng-grid.js";
+import { ZIP_GRID } from "./zip-grid.js";
 
 // --- Scraper Configs ---
 // Each config defines how to hit a specific company's dealer API
@@ -134,6 +135,1014 @@ const CONFIGS = {
       return data.paginginfo?.totalcount || data.dealers?.length || 0;
     },
   },
+  husqvarna: {
+    name: "Husqvarna",
+    type: "embedded", // all dealers embedded as JSON in page HTML
+    url: "https://www.husqvarna.com/us/dealer-locator/",
+    headers: {
+      "user-agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    },
+    extractDealers(html) {
+      // Find the initialData dealers array embedded in the page
+      const marker = '"initialData":{"dealers":[';
+      const start = html.indexOf(marker);
+      if (start === -1) throw new Error("Could not find dealer data in page");
+      const arrStart = html.indexOf("[", start);
+      let depth = 0;
+      let inStr = false;
+      let escape = false;
+      for (let i = arrStart; i < html.length; i++) {
+        const c = html[i];
+        if (escape) { escape = false; continue; }
+        if (c === "\\") { escape = true; continue; }
+        if (c === '"') { inStr = !inStr; continue; }
+        if (inStr) continue;
+        if (c === "[") depth++;
+        else if (c === "]") {
+          depth--;
+          if (depth === 0) {
+            // Unescape HTML entities
+            let arrText = html.slice(arrStart, i + 1)
+              .replace(/&amp;/g, "&").replace(/&lt;/g, "<")
+              .replace(/&gt;/g, ">").replace(/&quot;/g, '"')
+              .replace(/&#39;/g, "'").replace(/&rsquo;/g, "'");
+            return JSON.parse(arrText);
+          }
+        }
+      }
+      throw new Error("Could not parse dealer array");
+    },
+    parseResponse(dealers) {
+      return dealers.map((d) => {
+        // Address format: "street, \r\n\r\ncity, \r\nstate, \r\nzip \r\ncountry"
+        const parts = (d.address || "")
+          .split(/\r?\n/)
+          .map((s) => s.replace(/,\s*$/, "").trim())
+          .filter(Boolean);
+        return {
+          name: d.title || "",
+          address: parts[0] || "",
+          city: parts[1] || "",
+          state: parts[2] || "",
+          zip: (parts[3] || "").replace(/\s*USA\s*/, "").trim(),
+          country: "US",
+          phone: d.phone || "",
+          email: d.email || "",
+          website: d.web || "",
+          latitude: d.cord?.latitude || "",
+          longitude: d.cord?.longitude || "",
+          services: (d.services || []).join(", "),
+        };
+      });
+    },
+  },
+
+  kubota: {
+    name: "Kubota",
+    type: "zipgrid", // iterate through zip codes
+    batchSize: 2, // Cloudflare-protected — go slow
+    delayMs: 2000,
+    baseUrl: "https://www.kubotausa.com/api/dealers/SearchLocations",
+    headers: {
+      "content-type": "application/json",
+      "user-agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    },
+    buildRequest(zip) {
+      return {
+        url: this.baseUrl,
+        options: {
+          method: "POST",
+          headers: this.headers,
+          body: JSON.stringify({
+            LocationQuery: zip,
+            Equipment: "",
+            IsRegional: false,
+            State: "",
+            FilterByOrangeRental: false,
+          }),
+        },
+      };
+    },
+    parseResponse(data) {
+      return (data.results || []).map((d) => {
+        const addr = d.Address || {};
+        return {
+          name: d.DealerName || "",
+          dealerNumber: d.DealerNumber || "",
+          address: addr.Street || "",
+          city: addr.City || "",
+          state: addr.StateCode || "",
+          zip: addr.Zip || "",
+          country: addr.CountryCode || "US",
+          phone: d.Phone || "",
+          fax: d.Fax || "",
+          email: d.DealerEmail || "",
+          website: d.DealerWebUrl || "",
+          latitude: addr.Latitude || "",
+          longitude: addr.Longitude || "",
+          productCodes: d.ProductCodes || "",
+        };
+      });
+    },
+  },
+
+  cubcadet: {
+    name: "Cub Cadet",
+    type: "grid",
+    baseUrl:
+      "https://www.cubcadet.com/on/demandware.store/Sites-cubcadet-Site/en_US/Stores-FindStores",
+    searchRadiusMiles: 100,
+    headers: {
+      accept: "application/json",
+      "x-requested-with": "XMLHttpRequest",
+      "user-agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    },
+    buildUrl(lat, lng) {
+      const params = new URLSearchParams({
+        showMap: "true",
+        radius: this.searchRadiusMiles.toString(),
+        lat: lat.toString(),
+        long: lng.toString(),
+      });
+      return `${this.baseUrl}?${params}`;
+    },
+    parseResponse(data) {
+      return (data.stores || []).map((d) => ({
+        name: d.name || "",
+        dealerId: d.custom?.dealer_id || d.ID || "",
+        address: [d.address1, d.address2].filter(Boolean).join(" "),
+        city: d.city || "",
+        state: d.stateCode || "",
+        zip: d.postalCode || "",
+        country: d.countryCode || "US",
+        phone: d.phone || "",
+        website: d.custom?.dealerWebsiteUrl || "",
+        latitude: d.latitude || "",
+        longitude: d.longitude || "",
+        dealerType: d.custom?.DealerType || "",
+        isElite: d.custom?.isEliteDealer || false,
+        googleRating: d.custom?.googleReviewsAve || "",
+        googleReviews: d.custom?.googleReviewsTotal || "",
+        categories: (d.custom?.productCategories || []).join(", "),
+      }));
+    },
+  },
+
+  toro: {
+    name: "Toro",
+    type: "zipgrid", // server-rendered HTML, needs zip code queries
+    sample: true, // too heavy for weekly cron — scrape on-demand after purchase
+    searchUrl: "https://www.toro.com/en/locator",
+    headers: {
+      "user-agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    },
+    buildRequest(zip) {
+      const params = new URLSearchParams({
+        countryCode: "US",
+        serviceType: "Buy",
+        postalCode: zip,
+        resultType: "Dealer",
+        productType: "267",
+        categoryName: "Contractor",
+        productTypeName: "Mowers",
+        searchRadius: "100",
+      });
+      return {
+        url: `${this.searchUrl}?${params}`,
+        options: { headers: this.headers },
+      };
+    },
+    // Override: parse HTML response instead of JSON
+    parseHtml: true,
+    extractFromHtml(html) {
+      const marker = "locations: [";
+      const start = html.indexOf(marker);
+      if (start === -1) return [];
+      const arrStart = html.indexOf("[", start);
+      let depth = 0;
+      let inStr = false;
+      let escape = false;
+      for (let i = arrStart; i < html.length; i++) {
+        const c = html[i];
+        if (escape) { escape = false; continue; }
+        if (c === "\\") { escape = true; continue; }
+        if (c === '"') { inStr = !inStr; continue; }
+        if (inStr) continue;
+        if (c === "[") depth++;
+        else if (c === "]") {
+          depth--;
+          if (depth === 0) {
+            return JSON.parse(html.slice(arrStart, i + 1));
+          }
+        }
+      }
+      return [];
+    },
+    parseResponse(rawDealers) {
+      return rawDealers.map((d) => {
+        const addr = d.Address || {};
+        return {
+          name: d.Name || "",
+          dealerId: d.DealerId || "",
+          address: [addr.AddressLine1, addr.AddressLine2, addr.AddressLine3]
+            .filter(Boolean)
+            .join(" "),
+          city: addr.City || "",
+          state: addr.Region || "",
+          zip: addr.PostalCode || "",
+          country: addr.Country || "US",
+          phone: d.Phone || "",
+          email: d.Email || "",
+          fax: d.Fax || "",
+          website: d.WebSite || "",
+          latitude: d.Latitude || "",
+          longitude: d.Longitude || "",
+          dealerType: d.DealerType || "",
+        };
+      });
+    },
+  },
+  milwaukee: {
+    name: "Milwaukee Tool Service Centers",
+    type: "storepoint", // single GET returns all sites
+    url: "https://service.milwaukeetool.com/support/api/v2/sites/",
+    params: {},
+    headers: {
+      accept: "application/json",
+      "user-agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    },
+    parseResponse(data) {
+      return (data.sites || [])
+        .filter((d) => d.country === "United States")
+        .map((d) => ({
+          name: d.name || "",
+          address: [d.addressLine1, d.addressLine2].filter(Boolean).join(" "),
+          city: d.city || "",
+          state: d.state || "",
+          zip: d.postalCode || "",
+          country: "US",
+          phone: d.phoneNumber || "",
+          latitude: d.latitude || "",
+          longitude: d.longitude || "",
+          productLines: (d.siteProductLines || [])
+            .map((p) => p.description)
+            .join(", "),
+        }));
+    },
+  },
+
+  troybilt: {
+    name: "Troy-Bilt",
+    type: "grid", // Demandware API, same pattern as Cub Cadet
+    baseUrl:
+      "https://www.troybilt.com/on/demandware.store/Sites-troybilt-Site/en_US/Stores-FindStores",
+    searchRadiusMiles: 100,
+    headers: {
+      accept: "application/json",
+      "x-requested-with": "XMLHttpRequest",
+      "user-agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    },
+    buildUrl(lat, lng) {
+      const params = new URLSearchParams({
+        showMap: "true",
+        radius: this.searchRadiusMiles.toString(),
+        lat: lat.toString(),
+        long: lng.toString(),
+      });
+      return `${this.baseUrl}?${params}`;
+    },
+    parseResponse(data) {
+      return (data.stores || []).map((d) => ({
+        name: d.name || "",
+        dealerId: d.custom?.dealer_id || d.ID || "",
+        address: [d.address1, d.address2].filter(Boolean).join(" "),
+        city: d.city || "",
+        state: d.stateCode || "",
+        zip: d.postalCode || "",
+        country: d.countryCode || "US",
+        phone: d.phone || "",
+        website: d.custom?.dealerWebsiteUrl || "",
+        latitude: d.latitude || "",
+        longitude: d.longitude || "",
+        dealerType: d.custom?.DealerType || "",
+        googleRating: d.custom?.googleReviewsAve || "",
+        googleReviews: d.custom?.googleReviewsTotal || "",
+        categories: (d.custom?.productCategories || []).join(", "),
+      }));
+    },
+  },
+
+  generac: {
+    name: "Generac",
+    type: "zipgrid",
+    batchSize: 3,
+    delayMs: 1500,
+    baseUrl: "https://www.generac.com/DealerLocatorApi/GetDealers",
+    headers: {
+      "content-type": "application/json",
+      "x-requested-with": "XMLHttpRequest",
+      "user-agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    },
+    buildRequest(zip) {
+      return {
+        url: this.baseUrl,
+        options: {
+          method: "POST",
+          headers: this.headers,
+          body: JSON.stringify({
+            category: "1",
+            city: "",
+            countryCode: "USA",
+            postalCode: zip,
+            radius: 100,
+            siteID: 1,
+            stateProvince: "",
+          }),
+        },
+      };
+    },
+    parseResponse(data) {
+      return (data.dealers || []).map((d) => ({
+        name: d.dealerName || "",
+        dealerId: d.id || "",
+        address: [d.address1, d.address2].filter(Boolean).join(" ").trim(),
+        city: d.city || "",
+        state: (d.stateProvince || "").trim(),
+        zip: d.postal || "",
+        country: d.countryCode || "USA",
+        phone: d.phone ? String(d.phone) : "",
+        email: d.email || "",
+        website: d.webSite || "",
+        latitude: d.latitude || "",
+        longitude: d.longitude || "",
+        dealerStatus: d.dealerStatus || "",
+        dealerClass: d.dealerClass || "",
+        services: (d.dealerServiceDetailsList || [])
+          .map((s) => s.dealerServiceName)
+          .join(", "),
+      }));
+    },
+  },
+
+  casece: {
+    name: "Case Construction",
+    type: "grid",
+    baseUrl:
+      "https://www.casece.com/apirequest/dealer-locator/get-dealer-by-geo-code",
+    searchRadiusMiles: 100,
+    headers: {
+      "user-agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    },
+    buildUrl(lat, lng) {
+      const params = new URLSearchParams({
+        latitude: lat.toString(),
+        longitude: lng.toString(),
+        pageId: "{362EF176-7313-467C-B2D1-20D7FB62ECFB}",
+        language: "en-US",
+        country: "US",
+      });
+      return `${this.baseUrl}?${params}`;
+    },
+    parseResponse(data) {
+      return (data.dealershipResults || []).map((r) => {
+        const d = r.dealership || {};
+        const attrs = d.dealershipAttributes || {};
+        const equipment = (attrs.contractDetails || [])
+          .map((c) => c.longDescription)
+          .join(", ");
+        return {
+          name: d.dealerName || "",
+          dealerNumber: d.dealerNumber || "",
+          address: [d.shippingAddress1, d.shippingAddress2]
+            .filter(Boolean)
+            .join(" "),
+          city: d.shippingCity || "",
+          state: d.shippingStateProv || "",
+          zip: d.shippingZip || "",
+          country: d.countryCode || "US",
+          phone: d.shippingPhone || "",
+          fax: d.shippingFax || "",
+          email: d.dealerEmail || "",
+          website: d.dealerWebsite || attrs.website || "",
+          latitude: d.latitude || "",
+          longitude: d.longitude || "",
+          equipment,
+        };
+      });
+    },
+  },
+
+  caseih: {
+    name: "Case IH",
+    type: "grid",
+    baseUrl:
+      "https://www.caseih.com/apirequest/dealer-locator/get-dealer-by-geo-code",
+    searchRadiusMiles: 100,
+    headers: {
+      "user-agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    },
+    buildUrl(lat, lng) {
+      const params = new URLSearchParams({
+        latitude: lat.toString(),
+        longitude: lng.toString(),
+        pageId: "{12BABBA7-79F2-49A8-B495-DAC335AC856A}",
+        language: "en-US",
+        country: "US",
+      });
+      return `${this.baseUrl}?${params}`;
+    },
+    parseResponse(data) {
+      return (data.dealershipResults || []).map((r) => {
+        const d = r.dealership || {};
+        const attrs = d.dealershipAttributes || {};
+        const equipment = (attrs.contractDetails || [])
+          .map((c) => c.longDescription)
+          .join(", ");
+        return {
+          name: d.dealerName || "",
+          dealerNumber: d.dealerNumber || "",
+          address: [d.shippingAddress1, d.shippingAddress2]
+            .filter(Boolean)
+            .join(" "),
+          city: d.shippingCity || "",
+          state: d.shippingStateProv || "",
+          zip: d.shippingZip || "",
+          country: d.countryCode || "US",
+          phone: d.shippingPhone || "",
+          fax: d.shippingFax || "",
+          email: d.dealerEmail || "",
+          website: d.dealerWebsite || attrs.website || "",
+          latitude: d.latitude || "",
+          longitude: d.longitude || "",
+          equipment,
+        };
+      });
+    },
+  },
+
+  newholland: {
+    name: "New Holland Agriculture",
+    type: "grid",
+    baseUrl:
+      "https://agriculture.newholland.com/apirequest/dealer-locator/get-dealer-by-geo-code",
+    searchRadiusMiles: 100,
+    headers: {
+      "user-agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    },
+    buildUrl(lat, lng) {
+      const params = new URLSearchParams({
+        latitude: lat.toString(),
+        longitude: lng.toString(),
+        pageId: "{7465DECF-7E95-4B5E-8271-505BBBB37843}",
+        language: "en-US",
+        country: "US",
+      });
+      return `${this.baseUrl}?${params}`;
+    },
+    parseResponse(data) {
+      return (data.dealershipResults || []).map((r) => {
+        const d = r.dealership || {};
+        const attrs = d.dealershipAttributes || {};
+        const equipment = (attrs.contractDetails || [])
+          .map((c) => c.longDescription)
+          .join(", ");
+        return {
+          name: d.dealerName || "",
+          dealerNumber: d.dealerNumber || "",
+          address: [d.shippingAddress1, d.shippingAddress2]
+            .filter(Boolean)
+            .join(" "),
+          city: d.shippingCity || "",
+          state: d.shippingStateProv || "",
+          zip: d.shippingZip || "",
+          country: d.countryCode || "US",
+          phone: d.shippingPhone || "",
+          fax: d.shippingFax || "",
+          email: d.dealerEmail || "",
+          website: d.dealerWebsite || attrs.website || "",
+          latitude: d.latitude || "",
+          longitude: d.longitude || "",
+          equipment,
+        };
+      });
+    },
+  },
+
+  polaris: {
+    name: "Polaris",
+    type: "storepoint", // single call gets all ~540 US dealers
+    url: "https://etc.polaris.com/api/v1/dealers",
+    params: {
+      lat: 39.8283,
+      lon: -98.5795,
+      recordCount: 1000,
+      plc: "rgr,rzr,grl,ace,atv,xxp,sno,tsl,cmv,slg,ind,bru,rrs",
+      distanceType: "mi",
+      distanceToLook: 20000,
+      doesSales: true,
+    },
+    headers: {
+      "user-agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    },
+    parseResponse(data) {
+      return (Array.isArray(data) ? data : [])
+        .filter((d) => d.country === "US")
+        .map((d) => {
+          const productLines = [
+            ...new Set(
+              (d.dealerGroupings || []).map((g) => g.productLineCode)
+            ),
+          ];
+          return {
+            name: d.businessName || "",
+            dealerId: d.dealerId || "",
+            address: [d.address1, d.address2].filter(Boolean).join(" "),
+            city: d.city || "",
+            state: d.region || "",
+            zip: d.postalCode || "",
+            country: "US",
+            phone: d.phone || "",
+            email: d.email || "",
+            website: d.webSite || d.dealerWebSite || "",
+            latitude: d.latitude || "",
+            longitude: d.longitude || "",
+            doesSales: d.dealerSales || false,
+            doesService: d.dealerService || false,
+            productLines: productLines.join(", "),
+          };
+        });
+    },
+  },
+
+  scag: {
+    name: "Scag Power Equipment",
+    type: "storepoint", // single AJAX call returns all 1500+ dealers
+    url: "https://www.scag.com/wp-admin/admin-ajax.php",
+    params: { action: "asl_load_stores", load_all: 1, layout: 1 },
+    headers: {
+      "user-agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    },
+    parseResponse(data) {
+      return (Array.isArray(data) ? data : [])
+        .filter((d) => d.country === "United States")
+        .map((d) => ({
+          name: d.title || "",
+          address: d.street || "",
+          city: d.city || "",
+          state: d.state || "",
+          zip: d.postal_code || "",
+          country: "US",
+          phone: d.phone || "",
+          fax: d.fax || "",
+          email: d.email || "",
+          website: d.website || "",
+          latitude: d.lat || "",
+          longitude: d.lng || "",
+          dealerNetwork: d.dealer_network || "",
+        }));
+    },
+  },
+
+  gravely: {
+    name: "Gravely",
+    type: "zipgrid",
+    batchSize: 5,
+    delayMs: 500,
+    baseUrl: "https://www.gravely.com/api/dealerlocator/finddealers",
+    headers: {
+      "user-agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    },
+    buildRequest(zip) {
+      const params = new URLSearchParams({
+        searchQuery: zip,
+        type: "",
+        isEcommerceFirst: "false",
+        isEcommerceOnly: "false",
+      });
+      return {
+        url: `${this.baseUrl}?${params}`,
+        options: { headers: this.headers },
+      };
+    },
+    parseResponse(data) {
+      return (Array.isArray(data) ? data : [])
+        .filter((d) => d.brand === "Gravely")
+        .map((d) => ({
+          name: d.name || "",
+          dealerId: d.id || "",
+          address: [d.address1, d.address2].filter(Boolean).join(" "),
+          city: d.locality || "",
+          state: d.administrativeAreaLevel1 || "",
+          zip: d.postalCode || "",
+          country: d.country || "US",
+          phone: d.phone1 || "",
+          website: d.website || "",
+          latitude: d.latitude || "",
+          longitude: d.longitude || "",
+          productTypes: (d.productTypes || []).join(", "),
+          dealerClass: d.dealerClass || "",
+          lawnLevel: d.lawnLevel || "",
+          serviceLevel: d.serviceLevel || "",
+        }));
+    },
+  },
+
+  ariens: {
+    name: "Ariens",
+    type: "zipgrid",
+    batchSize: 5,
+    delayMs: 500,
+    baseUrl: "https://www.ariens.com/api/dealerlocator/finddealers",
+    headers: {
+      "user-agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    },
+    buildRequest(zip) {
+      const params = new URLSearchParams({
+        searchQuery: zip,
+        type: "",
+        isEcommerceFirst: "false",
+        isEcommerceOnly: "false",
+      });
+      return {
+        url: `${this.baseUrl}?${params}`,
+        options: { headers: this.headers },
+      };
+    },
+    parseResponse(data) {
+      return (Array.isArray(data) ? data : [])
+        .filter((d) => d.brand === "Ariens")
+        .map((d) => ({
+          name: d.name || "",
+          dealerId: d.id || "",
+          address: [d.address1, d.address2].filter(Boolean).join(" "),
+          city: d.locality || "",
+          state: d.administrativeAreaLevel1 || "",
+          zip: d.postalCode || "",
+          country: d.country || "US",
+          phone: d.phone1 || "",
+          website: d.website || "",
+          latitude: d.latitude || "",
+          longitude: d.longitude || "",
+          productTypes: (d.productTypes || []).join(", "),
+          dealerClass: d.dealerClass || "",
+          snowLevel: d.snowLevel || "",
+          lawnLevel: d.lawnLevel || "",
+          serviceLevel: d.serviceLevel || "",
+        }));
+    },
+  },
+
+  ferris: {
+    name: "Ferris (Briggs & Stratton)",
+    type: "storepoint", // single POST with large radius gets all dealers
+    url: "https://www.briggsandstratton.com/_hcms/api/dealer-locator",
+    params: {},
+    headers: {
+      "content-type": "application/json",
+      "user-agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    },
+    // Override: use POST instead of GET
+    fetchOverride: true,
+    async fetchData() {
+      const res = await fetch(this.url, {
+        method: "POST",
+        headers: this.headers,
+        body: JSON.stringify({
+          latitude: 39.8283,
+          longitude: -98.5795,
+          radius: 5000,
+        }),
+      });
+      return res.json();
+    },
+    parseResponse(data) {
+      return (Array.isArray(data) ? data : []).map((d) => ({
+        name: d.dealerName || "",
+        dealerId: d.dealerId || "",
+        address: [d.address1, d.address2, d.address3]
+          .filter(Boolean)
+          .join(" "),
+        city: d.city || "",
+        state: d.state || "",
+        zip: d.zip || "",
+        country: d.country || "US",
+        phone: d.phone || "",
+        email: d.email || "",
+        website: d.website || "",
+        dealerPageUrl: d.dealerPageURL || "",
+        latitude: "",
+        longitude: "",
+        productLines: (d.productLines || [])
+          .map((p) => `${p.productLine} (${p.productSegement})`)
+          .join(", "),
+      }));
+    },
+  },
+  // ==========================================
+  // RETAILERS
+  // ==========================================
+
+  target: {
+    name: "Target",
+    type: "zipgrid",
+    batchSize: 5,
+    delayMs: 500,
+    baseUrl:
+      "https://redsky.target.com/redsky_aggregations/v1/web/nearby_stores_v1",
+    headers: {
+      "user-agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    },
+    buildRequest(zip) {
+      const params = new URLSearchParams({
+        limit: "20",
+        within: "100",
+        place: zip,
+        key: "8df66ea1e1fc070a6ea99e942431c9cd67a80f02",
+      });
+      return {
+        url: `${this.baseUrl}?${params}`,
+        options: { headers: this.headers },
+      };
+    },
+    parseResponse(data) {
+      const stores = data?.data?.nearby_stores?.stores || [];
+      return stores.map((s) => {
+        const addr = s.mailing_address || {};
+        const geo = s.geographic_specifications?.latitude
+          ? s.geographic_specifications
+          : s.geofence || {};
+        return {
+          name: s.location_name || s.store_name || "",
+          storeId: s.store_id || s.location_id || "",
+          address: addr.address_line1 || "",
+          city: addr.city || "",
+          state: addr.state || "",
+          zip: addr.postal_code || "",
+          country: "US",
+          phone: s.main_voice_phone_number || s.phone_number || "",
+          latitude: geo.latitude || "",
+          longitude: geo.longitude || "",
+          storeType: s.store_type || s.type_code || "",
+        };
+      });
+    },
+  },
+
+  cvs: {
+    name: "CVS Pharmacy",
+    type: "zipgrid",
+    batchSize: 3,
+    delayMs: 1000,
+    baseUrl: "https://www.cvs.com/api/locator/v2/stores/search",
+    headers: {
+      "x-api-key": "k6DnPo1puMOQmAhSCiRGYvzMYOSFu903",
+      "user-agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    },
+    buildRequest(zip) {
+      const params = new URLSearchParams({
+        searchBy: "ZIPCODE",
+        searchText: zip,
+        resultsPerPage: "50",
+        pageNum: "1",
+      });
+      return {
+        url: `${this.baseUrl}?${params}`,
+        options: { headers: this.headers },
+      };
+    },
+    parseResponse(data) {
+      return (data.storeList || []).map((d) => {
+        const addr = d.address || {};
+        return {
+          name: d.storeName || "",
+          storeId: d.storeId || "",
+          address: addr.street || "",
+          city: addr.city || "",
+          state: addr.state || "",
+          zip: addr.zip || "",
+          country: "US",
+          phone:
+            (d.phoneNumbers || []).find((p) => p.type === "store")?.number ||
+            "",
+          latitude: d.latitude || "",
+          longitude: d.longitude || "",
+          storeType: d.storeType || "",
+          services: (d.identifier || []).join(", "),
+        };
+      });
+    },
+  },
+
+  aldi: {
+    name: "Aldi",
+    type: "storepoint", // single call gets all ~2,650 stores
+    url: "https://locator.uberall.com/api/locators/LETA2YVm6txbe0b9lS297XdxDX4qVQ/locations/all",
+    params: {},
+    headers: {
+      "user-agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    },
+    // Override URL construction since params need repeated fieldMask keys
+    fetchOverride: true,
+    async fetchData() {
+      const fields = ["id", "identifier", "lat", "lng", "name", "country", "city", "province", "streetAndNumber", "zip", "phone"];
+      const fieldParams = fields.map((f) => `fieldMask=${f}`).join("&");
+      const url = `${this.url}?v=20230110&language=en&${fieldParams}`;
+      const res = await fetch(url, { headers: this.headers });
+      return res.json();
+    },
+    parseResponse(data) {
+      return (data.response?.locations || [])
+        .filter((d) => d.country === "US")
+        .map((d) => ({
+          name: d.name || "",
+          storeId: d.identifier || "",
+          address: d.streetAndNumber || "",
+          city: d.city || "",
+          state: d.province || "",
+          zip: d.zip || "",
+          country: "US",
+          phone: d.phone || "",
+          latitude: d.lat || "",
+          longitude: d.lng || "",
+        }));
+    },
+  },
+
+  ross: {
+    name: "Ross Dress for Less",
+    type: "storepoint", // single POST gets all ~1,914 stores
+    url: "https://llp-renderer.meetsoci.com/rossdressforless/rest/locatorsearch",
+    params: {},
+    headers: {
+      "content-type": "application/json",
+      "user-agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    },
+    fetchOverride: true,
+    async fetchData() {
+      const res = await fetch(this.url, {
+        method: "POST",
+        headers: this.headers,
+        body: JSON.stringify({
+          request: {
+            appkey: "097D3C64-7006-11E8-9405-6974C403F339",
+            formdata: {
+              dataview: "store_default",
+              limit: 5000,
+              geolocs: {
+                geoloc: [
+                  {
+                    addressline: "66952",
+                    country: "US",
+                    latitude: "",
+                    longitude: "",
+                  },
+                ],
+              },
+              searchradius: "5000",
+              where: { and: { "Hide on Locator": { ne: "Yes" } } },
+            },
+          },
+        }),
+      });
+      return res.json();
+    },
+    parseResponse(data) {
+      return (data.response?.collection || [])
+        .filter((d) => d.country === "US")
+        .map((d) => ({
+          name: d.name || "",
+          storeId: d.clientkey || "",
+          address: [d.address1, d.address2].filter(Boolean).join(" "),
+          city: d.city || "",
+          state: d.state || "",
+          zip: d.postalcode || "",
+          country: "US",
+          phone: d.phone || "",
+          latitude: d.latitude || "",
+          longitude: d.longitude || "",
+          mondayHours: `${d.monday_open || ""}-${d.monday_close || ""}`,
+          saturdayHours: `${d.saturday_open || ""}-${d.saturday_close || ""}`,
+          sundayHours: `${d.sunday_open || ""}-${d.sunday_close || ""}`,
+        }));
+    },
+  },
+
+  walgreens: {
+    name: "Walgreens",
+    type: "zipgrid",
+    batchSize: 5,
+    delayMs: 500,
+    baseUrl:
+      "https://www.walgreens.com/locator/v1/stores/search?requestor=search",
+    headers: {
+      "content-type": "application/json",
+      "user-agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    },
+    buildRequest(zip) {
+      // Use lat/lng from zip grid would be better, but we need to get coords for zip
+      // The API actually accepts zip via a geocoding step, but the direct API needs lat/lng
+      // We'll use the zip grid's corresponding lat/lng by looking it up
+      return {
+        url: this.baseUrl,
+        options: {
+          method: "POST",
+          headers: this.headers,
+          body: JSON.stringify({
+            r: "75",
+            lat: "",
+            lng: "",
+            p: 1,
+            s: 10,
+            zip: zip,
+          }),
+        },
+      };
+    },
+    parseResponse(data) {
+      return (data.results || []).map((r) => {
+        const store = r.store || {};
+        const addr = store.address || {};
+        const phone = store.phone || {};
+        return {
+          name: store.name || "",
+          storeNumber: store.storeNumber || "",
+          brand: store.storeBrand || store.brand || "Walgreens",
+          address: addr.street || "",
+          city: addr.city || "",
+          state: addr.state || "",
+          zip: addr.zip || "",
+          country: "US",
+          phone: phone.areaCode
+            ? `${phone.areaCode}-${(phone.number || "").trim()}`
+            : "",
+          latitude: r.latitude || "",
+          longitude: r.longitude || "",
+          storeType: store.storeType || "",
+          storeHours: `${store.storeOpenTime || ""}-${store.storeCloseTime || ""}`,
+          pharmacyHours: `${store.pharmacyOpenTime || ""}-${store.pharmacyCloseTime || ""}`,
+          services: (store.serviceIndicators || [])
+            .map((s) => s.name)
+            .join(", "),
+        };
+      });
+    },
+  },
+
+  publix: {
+    name: "Publix",
+    type: "storepoint", // single call gets all ~1,435 stores
+    url: "https://services.publix.com/api/v1/storelocation",
+    params: {
+      types: "R,G,H,N,S",
+      limit: 5000,
+      latitude: 28.5383,
+      longitude: -81.3792,
+      distance: 5000,
+    },
+    headers: {
+      "user-agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    },
+    parseResponse(data) {
+      return (data.Stores || []).map((d) => ({
+        name: d.NAME || "",
+        storeNumber: d.KEY || "",
+        address: d.ADDR || "",
+        city: d.CITY || "",
+        state: d.STATE || "",
+        zip: d.ZIP || "",
+        country: "US",
+        phone: d.PHONE || "",
+        fax: d.FAX || "",
+        latitude: d.CLAT || "",
+        longitude: d.CLON || "",
+        hours: d.STRHOURS || "",
+        departments: d.DEPTS || "",
+        services: d.SERVICES || "",
+        storeType: d.TYPE || "",
+      }));
+    },
+  },
 };
 
 // --- CSV Export ---
@@ -182,21 +1191,42 @@ async function scrape(configName) {
     process.exit(1);
   }
 
+  if (config.sample && !process.argv.includes("--force")) {
+    console.log(`\n⚠ ${config.name} is marked as sample-only (too heavy for weekly cron).`);
+    console.log(`  Run with --force to scrape anyway: node scrape.js ${configName} --force`);
+    process.exit(0);
+  }
+
   console.log(`\nScraping ${config.name}...`);
   console.log(`Type: ${config.type}\n`);
 
   let allDealers = [];
 
-  if (config.type === "storepoint") {
-    // Single API call gets everything
-    const params = new URLSearchParams(
-      Object.entries(config.params).map(([k, v]) => [k, String(v)])
-    );
-    const url = `${config.url}?${params}`;
-    console.log(`Fetching: ${url}`);
+  if (config.type === "embedded") {
+    // Fetch a page and extract embedded JSON data
+    console.log(`Fetching: ${config.url}`);
+    const res = await fetch(config.url, { headers: config.headers || {} });
+    const html = await res.text();
+    console.log(`Page size: ${(html.length / 1024).toFixed(0)} KB`);
 
-    const res = await fetch(url);
-    const data = await res.json();
+    const rawDealers = config.extractDealers(html);
+    allDealers = config.parseResponse(rawDealers);
+    console.log(`Extracted ${allDealers.length} dealers from embedded data.`);
+  } else if (config.type === "storepoint") {
+    // Single API call gets everything
+    let data;
+    if (config.fetchOverride && config.fetchData) {
+      console.log(`Fetching: ${config.url} (custom)`);
+      data = await config.fetchData();
+    } else {
+      const params = new URLSearchParams(
+        Object.entries(config.params).map(([k, v]) => [k, String(v)])
+      );
+      const url = `${config.url}?${params}`;
+      console.log(`Fetching: ${url}`);
+      const res = await fetch(url, { headers: config.headers || {} });
+      data = await res.json();
+    }
     allDealers = config.parseResponse(data);
     console.log(`Got ${allDealers.length} dealers in single request.`);
   } else if (config.type === "paginated") {
@@ -245,6 +1275,53 @@ async function scrape(configName) {
       }
     }
     console.log();
+  } else if (config.type === "zipgrid") {
+    // Search from a grid of zip codes
+    const totalZips = ZIP_GRID.length;
+    let completed = 0;
+    let errors = 0;
+
+    const BATCH_SIZE = config.batchSize || 5;
+    const DELAY_BETWEEN_BATCHES_MS = config.delayMs || 1000;
+
+    for (let i = 0; i < ZIP_GRID.length; i += BATCH_SIZE) {
+      const batch = ZIP_GRID.slice(i, i + BATCH_SIZE);
+
+      const results = await Promise.allSettled(
+        batch.map(async (zip) => {
+          const req = config.buildRequest(zip);
+          const res = await fetch(req.url, req.options);
+          if (config.parseHtml) {
+            const html = await res.text();
+            const rawDealers = config.extractFromHtml(html);
+            return config.parseResponse(rawDealers);
+          }
+          const data = await res.json();
+          return config.parseResponse(data);
+        })
+      );
+
+      for (const result of results) {
+        completed++;
+        if (result.status === "fulfilled") {
+          allDealers.push(...result.value);
+        } else {
+          errors++;
+        }
+      }
+
+      if (completed % 50 < BATCH_SIZE) {
+        const uniqueSoFar = dedup(allDealers).length;
+        process.stdout.write(
+          `\r  Progress: ${completed}/${totalZips} zips | ${allDealers.length} raw | ${uniqueSoFar} unique | ${errors} errors`
+        );
+      }
+
+      if (i + BATCH_SIZE < ZIP_GRID.length) {
+        await sleep(DELAY_BETWEEN_BATCHES_MS);
+      }
+    }
+    console.log();
   } else if (config.type === "grid") {
     // Search from a grid of lat/lng points covering the US
     const totalPoints = LAT_LNG_GRID.length;
@@ -259,8 +1336,23 @@ async function scrape(configName) {
 
       const results = await Promise.allSettled(
         batch.map(async (point) => {
-          const url = config.buildUrl(point.lat, point.lng);
-          const res = await fetch(url, { headers: config.headers || {} });
+          // Support custom fetchAndParse (e.g., Toro HTML parsing)
+          if (config.fetchAndParse) {
+            const url = config.buildUrl(point.lat, point.lng);
+            const rawDealers = await config.fetchAndParse(url);
+            return config.parseResponse(rawDealers);
+          }
+          // Support buildRequest for POST-based APIs (e.g., Kubota)
+          let url, fetchOpts;
+          if (config.buildRequest) {
+            const req = config.buildRequest(point.lat, point.lng);
+            url = req.url;
+            fetchOpts = req.options;
+          } else {
+            url = config.buildUrl(point.lat, point.lng);
+            fetchOpts = { headers: config.headers || {} };
+          }
+          const res = await fetch(url, fetchOpts);
           const data = await res.json();
           return config.parseResponse(data);
         })
@@ -323,7 +1415,8 @@ const arg = process.argv[2];
 if (!arg || arg === "--list") {
   console.log("\nAvailable scraper configs:");
   for (const [key, config] of Object.entries(CONFIGS)) {
-    console.log(`  ${key} - ${config.name} (${config.type})`);
+    const tag = config.sample ? " [sample-only]" : "";
+    console.log(`  ${key} - ${config.name} (${config.type})${tag}`);
   }
   console.log("\nUsage: node scrape.js <config-name>");
   process.exit(0);
