@@ -1,0 +1,12 @@
+{
+  "name": "dealer-scraper",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "recon": "node recon.js",
+    "scrape": "node scrape.js"
+  },
+  "dependencies": {
+    "playwright": "^1.58.0"
+  }
+}
