@@ -42,6 +42,46 @@ const CONFIGS = {
     },
   },
 
+  dewalt: {
+    name: "DeWalt",
+    type: "paginated",
+    baseUrl: "https://gd3e42amdv.us-east-1.awsapprunner.com/v1/locations",
+    pageSize: 1000,
+    // Agora JWT from dewalt.com/find-retailer page config
+    agoraKey:
+      "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IjY3ZjU1MWZmOTI3ZGRiZGYyMDExNTVlMyJ9.eyJhdXRoS2V5SWQiOiI2N2Y1NTFmZjkyN2RkYmRmMjAxMTU1ZTMiLCJyb2xlcyI6WyI2NzRkZTIxMzViOWM2ZWQxZGNmZDJjZDAiXSwiaWF0IjoxNzQ0MTMwNTU5LCJpc3MiOiJvbSIsInN1YiI6IjY3MGU3NzAyZWZmZDhmNGNiZjIxYjViYiIsImp0aSI6ImVhNGM3OGYxLWNkNDctNDc5ZS05NmZkLTVkMjcyN2EyYmIzNCJ9.L2NdOYzyYByHFSIdUIWfp0qimCXHPPbrgQFdx1b-aZjRnbvZm2BqKebvwX-upHOvv4OCWYq-dmfzNoGGP4h1XIo_C2z2RdQMfFYqQcExYYWNAI-sNMUOJwfJL2VV2kDckkgm4TcU_MONaH3g8cIuqLN-bBHGGRwWlgp_YHOKs3RXSnQ7t5D6HAYVeNnYsdzKT7pqNMjwMIVbcwZN1pcrFN5yF6gi8pe2OZ7lKQMbnQw4d4d-MPAYfy0Kk0-6VPf5NorL3grUlHj5XUTcffq89QksbOaBFD0HCy6T27RjBfsWkwgI3Yyd2NNmOuB8RT1eASMYRTemE-TkpuTNmXSvFA",
+    headers() {
+      return {
+        accept: "application/json",
+        authorization: `Bearer ${this.agoraKey}`,
+      };
+    },
+    filterItem(item) {
+      return item.market_or_country === "US";
+    },
+    parseItem(d) {
+      const addr = d.address || {};
+      const contact = d.contact || {};
+      const coords = addr.coordinates || [];
+      return {
+        name: d.name || "",
+        address: [addr.address1, addr.address2].filter(Boolean).join(" "),
+        city: addr.city || "",
+        state: addr.state || "",
+        zip: addr.postal_code || "",
+        country: d.market_or_country || "",
+        phone: contact.phone || "",
+        email: contact.email || "",
+        website: contact.website || "",
+        latitude: coords[0] || "",
+        longitude: coords[1] || "",
+        brands: (d.brands || []).join(", "),
+        googleRating: d.google_rating || "",
+        googleReviews: d.google_reviews_total || "",
+      };
+    },
+  },
+
   stihl: {
     name: "STIHL USA",
     type: "grid", // needs zip code grid for full coverage
@@ -159,6 +199,52 @@ async function scrape(configName) {
     const data = await res.json();
     allDealers = config.parseResponse(data);
     console.log(`Got ${allDealers.length} dealers in single request.`);
+  } else if (config.type === "paginated") {
+    // Paginate through a REST API with offset/limit
+    let offset = 0;
+    let hasMore = true;
+    let errors = 0;
+
+    while (hasMore) {
+      const url = `${config.baseUrl}?limit=${config.pageSize}&offset=${offset}`;
+      try {
+        const res = await fetch(url, {
+          headers: typeof config.headers === "function" ? config.headers() : config.headers || {},
+        });
+        const data = await res.json();
+        const items = data.result?.items || [];
+
+        if (items.length === 0) {
+          hasMore = false;
+          break;
+        }
+
+        for (const item of items) {
+          if (config.filterItem && !config.filterItem(item)) continue;
+          allDealers.push(config.parseItem(item));
+        }
+
+        offset += items.length;
+        process.stdout.write(
+          `\r  Fetched ${offset} records | ${allDealers.length} matching filter`
+        );
+
+        if (items.length < config.pageSize) {
+          hasMore = false;
+        }
+
+        await sleep(200);
+      } catch (e) {
+        errors++;
+        console.log(`\n  Error at offset ${offset}: ${e.message}`);
+        if (errors > 5) {
+          console.log("  Too many errors, stopping.");
+          hasMore = false;
+        }
+        await sleep(1000);
+      }
+    }
+    console.log();
   } else if (config.type === "grid") {
     // Search from a grid of lat/lng points covering the US
     const totalPoints = LAT_LNG_GRID.length;

@@ -1,0 +1,42 @@
+name: Weekly Dealer Scrape
+
+on:
+  schedule:
+    # Every Sunday at 6am UTC
+    - cron: '0 6 * * 0'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        brand: [rcmowers, stihl, dewalt]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium
+
+      - name: Run scraper for ${{ matrix.brand }}
+        run: node scrape.js ${{ matrix.brand }}
+
+      - name: Upload to S3
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: node upload.js ${{ matrix.brand }}
+
+      - name: Upload artifact (backup)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.brand }}-dealers
+          path: output/*.csv
+          retention-days: 90
