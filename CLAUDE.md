@@ -56,6 +56,16 @@ output/            — Scraped CSV files (gitignored)
 | Ross | 1,911 | storepoint (POST) | `llp-renderer.meetsoci.com/rossdressforless/rest/locatorsearch` (MeetSOCi) |
 | Publix | 1,435 | storepoint | `services.publix.com/api/v1/storelocation` (SE US only) |
 
+## Completed Brands — Hardware Stores
+
+| Brand | Stores | Type | API Endpoint |
+|-------|--------|------|-------------|
+| Ace Hardware | 4,000 | embedded | All stores in page HTML at `acehardware.com/store-directory` (no lat/lng) |
+| Do It Best | 3,252 | storepoint (GraphQL) | `doitbest.com/api/graphql` — state-by-state iteration via `activeMemberStates` |
+| Carter Lumber | 225 | storepoint (POST) | `carterlumber.com/api/content/_search` (dotCMS, `+contentType:Location`) |
+| Aubuchon Hardware | 133 | storepoint (GraphQL POST) | `hardwarestore.com/graphql` — `pickupStoreList` query |
+| Hilti | 68 | storepoint (detail pages) | `hilti.com/stores/{slug}` — JSON-LD from 68 detail pages |
+
 ## Awaiting Rate Limit Reset
 
 ### Kubota — CODE READY, IP BLOCKED
@@ -108,6 +118,9 @@ Search demand for "[brand] dealer/store near me" (normalized, STIHL = 100):
 - **Whole Foods**: `/api/stores/{id}/summary` — needs store ID enumeration
 
 ### Hard (WAF/bot protection)
+- **Harbor Freight**: PerimeterX bot detection
+- **Menards**: Imperva/Incapsula WAF
+- **Northern Tool**: Yottaa bot protection (142 stores, IBM WCS API behind WAF)
 - **Walmart**: PerimeterX bot detection
 - **Costco**: Akamai WAF
 - **Home Depot**: Akamai BotManager
@@ -123,6 +136,11 @@ Search demand for "[brand] dealer/store near me" (normalized, STIHL = 100):
 - **Snap-on**: reCAPTCHA protected
 - **Exmark**: Salesforce embedded
 - **Milwaukee Retailers**: PriceSpider widget (30K+ stores)
+
+### Too small / broken
+- **Hardware Hank**: ~27 stores, subset of Do It Best co-op (already captured)
+- **Home Hardware Center**: 26 stores, Cloudflare-protected HTML (MS/LA/AR)
+- **Frattallones**: 21 stores, WP Maps plugin but no addresses in API (MN only)
 
 ## How to Add a New Brand
 1. Run `node recon.js <dealer-locator-url>` (or `recon-targeted.js` for sites with cookie banners)
@@ -142,8 +160,8 @@ Search demand for "[brand] dealer/store near me" (normalized, STIHL = 100):
 ## Competitive Context
 - **ScrapeHero** has 5,125 datasets, 503 dealer-specific, priced $5-$100 per dataset
 - Our advantage: fresher data (weekly vs monthly), we already match/exceed their counts
-- **116,649 total records** across 21 completed brands (15 equipment + 6 retailers)
-- Target categories: Lawn/Farm Equipment, Construction/Heavy Equipment, Powersports, Retail Chains
+- **124,345 total records** across 26 completed brands (15 equipment + 6 retailers + 5 hardware)
+- Target categories: Lawn/Farm Equipment, Construction/Heavy Equipment, Powersports, Retail Chains, Hardware Stores
 
 ## Key Commands
 ```bash

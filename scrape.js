@@ -1153,6 +1153,264 @@ const CONFIGS = {
       }));
     },
   },
+  doitbest: {
+    name: "Do It Best",
+    type: "storepoint",
+    url: "https://www.doitbest.com/api/graphql",
+    params: {},
+    headers: {
+      "dibcommercerestriction":
+        "OpuhXuFqP9pC6H7xuiXmLWGJVTyWTg4trfIBLqjIi97FDPIqJJ1nV0cRqpmOTRnL",
+      Store: "default",
+      "user-agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    },
+    fetchOverride: true,
+    async fetchData() {
+      const statesQuery =
+        "{ activeMemberStates { state count } }";
+      const res = await fetch(`${this.url}?query=${encodeURIComponent(statesQuery)}`, {
+        headers: this.headers,
+      });
+      const statesData = await res.json();
+      const states = statesData?.data?.activeMemberStates || [];
+      const stateMap = {
+        Alabama: "AL", Alaska: "AK", Arizona: "AZ", Arkansas: "AR", California: "CA",
+        Colorado: "CO", Connecticut: "CT", Delaware: "DE", Florida: "FL", Georgia: "GA",
+        Hawaii: "HI", Idaho: "ID", Illinois: "IL", Indiana: "IN", Iowa: "IA",
+        Kansas: "KS", Kentucky: "KY", Louisiana: "LA", Maine: "ME", Maryland: "MD",
+        Massachusetts: "MA", Michigan: "MI", Minnesota: "MN", Mississippi: "MS",
+        Missouri: "MO", Montana: "MT", Nebraska: "NE", Nevada: "NV",
+        "New Hampshire": "NH", "New Jersey": "NJ", "New Mexico": "NM", "New York": "NY",
+        "North Carolina": "NC", "North Dakota": "ND", Ohio: "OH", Oklahoma: "OK",
+        Oregon: "OR", Pennsylvania: "PA", "Rhode Island": "RI", "South Carolina": "SC",
+        "South Dakota": "SD", Tennessee: "TN", Texas: "TX", Utah: "UT", Vermont: "VT",
+        Virginia: "VA", Washington: "WA", "West Virginia": "WV", Wisconsin: "WI",
+        Wyoming: "WY", "District of Columbia": "DC", "Puerto Rico": "PR",
+        "Virgin Islands": "VI", Guam: "GU", "American Samoa": "AS",
+        "Northern Mariana Islands": "MP",
+      };
+      const allStores = [];
+      for (const s of states) {
+        const abbrev = stateMap[s.state] || s.state;
+        const q = `{ storeLocator(filter: { state: "${abbrev}", limit: 1000 }) { store { name member_number street city state zipcode phone_number lat lng } } }`;
+        const r = await fetch(`${this.url}?query=${encodeURIComponent(q)}`, {
+          headers: this.headers,
+        });
+        const d = await r.json();
+        const stores = d?.data?.storeLocator?.store || [];
+        allStores.push(...stores);
+        process.stdout.write(
+          `\r  ${abbrev}: ${stores.length} stores | Total: ${allStores.length}`
+        );
+        await new Promise((r) => setTimeout(r, 300));
+      }
+      console.log();
+      return allStores;
+    },
+    parseResponse(data) {
+      return (Array.isArray(data) ? data : []).map((d) => ({
+        name: d.name || "",
+        memberId: d.member_number || "",
+        address: d.street || "",
+        city: d.city || "",
+        state: d.state || "",
+        zip: d.zipcode || "",
+        country: "US",
+        phone: d.phone_number || "",
+        latitude: d.lat || "",
+        longitude: d.lng || "",
+      }));
+    },
+  },
+
+  acehardware: {
+    name: "Ace Hardware",
+    type: "embedded",
+    url: "https://www.acehardware.com/store-directory",
+    headers: {
+      "user-agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    },
+    extractDealers(html) {
+      const marker = 'storeDirectory">[';
+      const start = html.indexOf(marker);
+      if (start === -1) throw new Error("Could not find store data in page");
+      const arrStart = html.indexOf("[", start);
+      let depth = 0;
+      let inStr = false;
+      let escape = false;
+      for (let i = arrStart; i < html.length; i++) {
+        const c = html[i];
+        if (escape) { escape = false; continue; }
+        if (c === "\\") { escape = true; continue; }
+        if (c === '"') { inStr = !inStr; continue; }
+        if (inStr) continue;
+        if (c === "[") depth++;
+        else if (c === "]") {
+          depth--;
+          if (depth === 0) {
+            let arrText = html.slice(arrStart, i + 1)
+              .replace(/&amp;/g, "&").replace(/&lt;/g, "<")
+              .replace(/&gt;/g, ">").replace(/&quot;/g, '"')
+              .replace(/&#39;/g, "'");
+            return JSON.parse(arrText);
+          }
+        }
+      }
+      throw new Error("Could not parse store JSON array");
+    },
+    parseResponse(data) {
+      return data
+        .filter((d) => d.address?.countryCode === "US")
+        .map((d) => ({
+          name: d.name || "",
+          storeCode: d.code || "",
+          address: [d.address?.address1, d.address?.address2].filter(Boolean).join(" ").trim(),
+          city: d.address?.cityOrTown || "",
+          state: d.address?.stateOrProvince || "",
+          zip: d.address?.postalOrZipCode || "",
+          country: "US",
+          phone: d.formattedPhoneNumber || d.phone || "",
+        }));
+    },
+  },
+
+  carterlumber: {
+    name: "Carter Lumber",
+    type: "storepoint",
+    url: "https://www.carterlumber.com/api/content/_search",
+    params: {},
+    headers: {
+      "content-type": "application/json",
+      "x-requested-with": "XMLHttpRequest",
+    },
+    fetchOverride: true,
+    async fetchData() {
+      const res = await fetch(this.url, {
+        method: "POST",
+        headers: this.headers,
+        body: JSON.stringify({
+          query: "+contentType:Location",
+          sort: "modDate",
+          limit: -1,
+        }),
+      });
+      const data = await res.json();
+      return data?.entity?.jsonObjectView?.contentlets || [];
+    },
+    parseResponse(data) {
+      return (Array.isArray(data) ? data : []).map((d) => ({
+        name: d.storeName || d.title || "",
+        storeNumber: d.posNumber || "",
+        address: d.addressLines || "",
+        city: d.city || "",
+        state: d.state || "",
+        zip: d.zip || "",
+        country: "US",
+        phone: d.phoneNumber || "",
+        latitude: d.latitude || "",
+        longitude: d.longitude || "",
+        manager: d.manager || "",
+        market: d.market || "",
+      }));
+    },
+  },
+
+  hilti: {
+    name: "Hilti",
+    type: "storepoint",
+    url: "https://www.hilti.com/stores",
+    params: {},
+    headers: {
+      "user-agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    },
+    fetchOverride: true,
+    async fetchData() {
+      // Step 1: Get all store slugs from directory page
+      const res = await fetch(this.url, { headers: this.headers });
+      const html = await res.text();
+      const slugs = [...html.matchAll(/\/stores\/([a-z_-]+)/g)]
+        .map((m) => m[1])
+        .filter((s, i, a) => a.indexOf(s) === i);
+      console.log(`  Found ${slugs.length} store pages`);
+
+      // Step 2: Fetch each store detail page for JSON-LD
+      const allStores = [];
+      for (let i = 0; i < slugs.length; i++) {
+        const r = await fetch(`${this.url}/${slugs[i]}`, { headers: this.headers });
+        const h = await r.text();
+        // Extract JSON-LD
+        const ldMatch = h.match(/<script type="application\/ld\+json">\s*(\{[\s\S]*?"@type"\s*:\s*"Store"[\s\S]*?\})\s*<\/script>/);
+        if (ldMatch) {
+          try {
+            const ld = JSON.parse(ldMatch[1]);
+            allStores.push({ ...ld, slug: slugs[i] });
+          } catch (e) {}
+        }
+        process.stdout.write(`\r  Fetched ${i + 1}/${slugs.length} stores`);
+        await new Promise((r) => setTimeout(r, 300));
+      }
+      console.log();
+      return allStores;
+    },
+    parseResponse(data) {
+      return (Array.isArray(data) ? data : []).map((d) => {
+        const addr = d.address || {};
+        const geo = d.geo || {};
+        return {
+          name: d.name || d.slug || "",
+          address: addr.streetAddress || "",
+          city: addr.addressLocality || "",
+          state: addr.addressRegion || "",
+          zip: addr.postalCode || "",
+          country: "US",
+          phone: d.telephone || "",
+          latitude: geo.latitude || "",
+          longitude: geo.longitude || "",
+        };
+      });
+    },
+  },
+
+  aubuchon: {
+    name: "Aubuchon Hardware",
+    type: "storepoint",
+    url: "https://www.hardwarestore.com/graphql",
+    params: {},
+    headers: {
+      "content-type": "application/json",
+      "user-agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    },
+    fetchOverride: true,
+    async fetchData() {
+      const query = `{ pickupStoreList { store_number store_name address city region_code zipcode latitude longitude phone brand { name } } }`;
+      const res = await fetch(this.url, {
+        method: "POST",
+        headers: this.headers,
+        body: JSON.stringify({ query }),
+      });
+      const data = await res.json();
+      return data?.data?.pickupStoreList || [];
+    },
+    parseResponse(data) {
+      return (Array.isArray(data) ? data : []).map((d) => ({
+        name: d.store_name || "",
+        storeNumber: d.store_number || "",
+        brand: d.brand?.name || "",
+        address: d.address || "",
+        city: d.city || "",
+        state: d.region_code || "",
+        zip: d.zipcode || "",
+        country: "US",
+        phone: d.phone || "",
+        latitude: d.latitude || "",
+        longitude: d.longitude || "",
+      }));
+    },
+  },
 };
 
 // --- CSV Export ---
