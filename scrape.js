@@ -1306,7 +1306,8 @@ const CONFIGS = {
         TN:"Tennessee",TX:"Texas",UT:"Utah",VA:"Virginia",VT:"Vermont",
         WA:"Washington",WI:"Wisconsin",WV:"West-Virginia",WY:"Wyoming",
       };
-      const allStores = [];
+      // Phase 1: Collect store IDs from state directory pages
+      const storeIds = new Set();
       for (const st of states) {
         const name = stateNames[st] || st;
         const url = `${this.url}/${name}/${st}`;
@@ -1330,7 +1331,7 @@ const CONFIGS = {
                 if (depth === 0) {
                   const dir = JSON.parse(html.slice(start, i + 1));
                   for (const city of Object.values(dir)) {
-                    for (const s of city) allStores.push(s);
+                    for (const s of city) storeIds.add(s.id);
                   }
                   break;
                 }
@@ -1338,23 +1339,43 @@ const CONFIGS = {
             }
           }
         } catch (e) {}
-        process.stdout.write(`\r  ${st}: ${allStores.length} stores`);
-        await new Promise((r) => setTimeout(r, 300));
+        process.stdout.write(`\r  Phase 1 — ${st}: ${storeIds.size} store IDs`);
+        await new Promise((r) => setTimeout(r, 200));
+      }
+      console.log();
+
+      // Phase 2: Fetch detail API for each store (has lat/lng)
+      const allStores = [];
+      const ids = [...storeIds];
+      for (let i = 0; i < ids.length; i++) {
+        try {
+          const res = await fetch(
+            `https://www.lowes.com/store/api/${ids[i]}`,
+            { headers: { ...this.headers, accept: "application/json" } }
+          );
+          const d = await res.json();
+          if (d && d.ADDR) allStores.push(d);
+        } catch (e) {}
+        if ((i + 1) % 50 === 0 || i === ids.length - 1) {
+          process.stdout.write(`\r  Phase 2 — ${i + 1}/${ids.length} detail pages | ${allStores.length} stores`);
+        }
+        await new Promise((r) => setTimeout(r, 200));
       }
       console.log();
       return allStores;
     },
     parseResponse(data) {
       return (Array.isArray(data) ? data : []).map((d) => ({
-        name: d.storeName || "",
-        storeId: d.id || "",
-        address: d.address || "",
-        city: d.city || "",
-        state: d.state || "",
-        zip: d.zip || "",
+        name: `Lowe's ${d.CITY || d.city || ""}`.trim(),
+        storeId: d.storeNumber || "",
+        address: d.ADDR || "",
+        city: d.CITY || "",
+        state: d.STATE || "",
+        zip: d.ZIP || "",
         country: "US",
-        phone: d.phone || "",
-        storeFeature: d.storeFeature || "",
+        phone: d.PHONE || "",
+        latitude: d.LLAT || "",
+        longitude: d.LLON || "",
       }));
     },
   },
@@ -1492,6 +1513,75 @@ const CONFIGS = {
         latitude: d.latitude || "",
         longitude: d.longitude || "",
       }));
+    },
+  },
+
+  homedepot: {
+    name: "Home Depot",
+    type: "storepoint",
+    url: "https://places.googleapis.com/v1/places:searchText",
+    params: {},
+    headers: {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Key": "AIzaSyDWat3WFfv5g5H2BZZrItdECmfmjZsCJOk",
+      "X-Goog-FieldMask": "places.displayName,places.formattedAddress,places.location,places.nationalPhoneNumber,places.id",
+    },
+    fetchOverride: true,
+    async fetchData() {
+      const seen = new Set();
+      const allStores = [];
+      const { ZIP_GRID } = await import("./zip-grid.js");
+      for (let i = 0; i < ZIP_GRID.length; i++) {
+        const zip = ZIP_GRID[i];
+        try {
+          const res = await fetch(this.url, {
+            method: "POST",
+            headers: this.headers,
+            body: JSON.stringify({
+              textQuery: `Home Depot near ${zip}`,
+              maxResultCount: 20,
+            }),
+          });
+          const data = await res.json();
+          const places = data.places || [];
+          for (const p of places) {
+            if (p.id && !seen.has(p.id)) {
+              seen.add(p.id);
+              allStores.push(p);
+            }
+          }
+        } catch (e) {}
+        if ((i + 1) % 50 === 0 || i === ZIP_GRID.length - 1) {
+          process.stdout.write(`\r  ${i + 1}/${ZIP_GRID.length} zips | ${allStores.length} unique stores`);
+        }
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      console.log();
+      return allStores;
+    },
+    parseResponse(data) {
+      return (Array.isArray(data) ? data : []).map((p) => {
+        const addr = p.formattedAddress || "";
+        const parts = addr.split(", ");
+        // Typical: "123 Main St, City, ST 12345, USA"
+        const street = parts[0] || "";
+        const city = parts[1] || "";
+        const stateZip = (parts[2] || "").split(" ");
+        const state = stateZip[0] || "";
+        const zip = stateZip[1] || "";
+        return {
+          name: p.displayName?.text || "",
+          placeId: p.id || "",
+          address: street,
+          city,
+          state,
+          zip,
+          country: "US",
+          phone: p.nationalPhoneNumber || "",
+          latitude: p.location?.latitude || "",
+          longitude: p.location?.longitude || "",
+        };
+      });
     },
   },
 };

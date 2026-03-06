@@ -7,6 +7,9 @@
     "scrape": "node scrape.js"
   },
   "dependencies": {
-    "playwright": "^1.58.0"
+    "playwright": "^1.58.0",
+    "puppeteer": "^24.38.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2"
   }
 }

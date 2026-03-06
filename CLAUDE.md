@@ -65,7 +65,8 @@ output/            — Scraped CSV files (gitignored)
 | Carter Lumber | 225 | storepoint (POST) | `carterlumber.com/api/content/_search` (dotCMS, `+contentType:Location`) |
 | Aubuchon Hardware | 133 | storepoint (GraphQL POST) | `hardwarestore.com/graphql` — `pickupStoreList` query |
 | Hilti | 68 | storepoint (detail pages) | `hilti.com/stores/{slug}` — JSON-LD from 68 detail pages |
-| Lowe's | 1,762 | storepoint (state pages) | `lowes.com/Lowes-Stores/{State}/{ST}` — embedded `storeDirectory` JSON (no lat/lng) |
+| Lowe's | 1,762 | storepoint (two-phase) | `lowes.com/Lowes-Stores/{State}/{ST}` → `/store/api/{id}` for lat/lng |
+| Home Depot | 1,533 | storepoint (Google Places) | `places.googleapis.com/v1/places:searchText` — zip grid dedup by place ID |
 
 ## Awaiting Rate Limit Reset
 
@@ -124,7 +125,7 @@ Search demand for "[brand] dealer/store near me" (normalized, STIHL = 100):
 - **Northern Tool**: Yottaa — API is `northerntool.com/wcs/resources/store/6970/storelocator/latitude/{lat}/longitude/{lng}`, 142 stores. Needs Yottaa bypass.
 - **Walmart**: PerimeterX bot detection
 - **Costco**: Akamai WAF
-- **Home Depot**: Akamai BotManager
+- **Home Depot**: Done via Google Places API (Akamai blocks direct API)
 - **Best Buy**: Akamai (Playwright works, server-rendered HTML)
 - **Nordstrom**: Akamai
 - **Sam's Club**: PerimeterX
@@ -161,7 +162,7 @@ Search demand for "[brand] dealer/store near me" (normalized, STIHL = 100):
 ## Competitive Context
 - **ScrapeHero** has 5,125 datasets, 503 dealer-specific, priced $5-$100 per dataset
 - Our advantage: fresher data (weekly vs monthly), we already match/exceed their counts
-- **126,107 total records** across 27 completed brands (15 equipment + 6 retailers + 6 hardware)
+- **127,640 total records** across 28 completed brands (15 equipment + 6 retailers + 7 hardware)
 - Target categories: Lawn/Farm Equipment, Construction/Heavy Equipment, Powersports, Retail Chains, Hardware Stores
 
 ## Key Commands
