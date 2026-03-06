@@ -65,6 +65,7 @@ output/            — Scraped CSV files (gitignored)
 | Carter Lumber | 225 | storepoint (POST) | `carterlumber.com/api/content/_search` (dotCMS, `+contentType:Location`) |
 | Aubuchon Hardware | 133 | storepoint (GraphQL POST) | `hardwarestore.com/graphql` — `pickupStoreList` query |
 | Hilti | 68 | storepoint (detail pages) | `hilti.com/stores/{slug}` — JSON-LD from 68 detail pages |
+| Lowe's | 1,762 | storepoint (state pages) | `lowes.com/Lowes-Stores/{State}/{ST}` — embedded `storeDirectory` JSON (no lat/lng) |
 
 ## Awaiting Rate Limit Reset
 
@@ -160,7 +161,7 @@ Search demand for "[brand] dealer/store near me" (normalized, STIHL = 100):
 ## Competitive Context
 - **ScrapeHero** has 5,125 datasets, 503 dealer-specific, priced $5-$100 per dataset
 - Our advantage: fresher data (weekly vs monthly), we already match/exceed their counts
-- **124,345 total records** across 26 completed brands (15 equipment + 6 retailers + 5 hardware)
+- **126,107 total records** across 27 completed brands (15 equipment + 6 retailers + 6 hardware)
 - Target categories: Lawn/Farm Equipment, Construction/Heavy Equipment, Powersports, Retail Chains, Hardware Stores
 
 ## Key Commands

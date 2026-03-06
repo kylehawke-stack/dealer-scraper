@@ -1276,6 +1276,89 @@ const CONFIGS = {
     },
   },
 
+  lowes: {
+    name: "Lowe's",
+    type: "storepoint",
+    url: "https://www.lowes.com/Lowes-Stores",
+    params: {},
+    headers: {
+      "user-agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    },
+    fetchOverride: true,
+    async fetchData() {
+      const states = [
+        "AL","AK","AZ","AR","CA","CO","CT","DC","DE","FL","GA","HI","IA","ID",
+        "IL","IN","KS","KY","LA","MA","MD","ME","MI","MN","MO","MS","MT","NC",
+        "ND","NE","NH","NJ","NM","NV","NY","OH","OK","OR","PA","RI","SC","SD",
+        "TN","TX","UT","VA","VT","WA","WI","WV","WY",
+      ];
+      const stateNames = {
+        AL:"Alabama",AK:"Alaska",AZ:"Arizona",AR:"Arkansas",CA:"California",
+        CO:"Colorado",CT:"Connecticut",DC:"District-Of-Columbia",DE:"Delaware",
+        FL:"Florida",GA:"Georgia",HI:"Hawaii",IA:"Iowa",ID:"Idaho",IL:"Illinois",
+        IN:"Indiana",KS:"Kansas",KY:"Kentucky",LA:"Louisiana",MA:"Massachusetts",
+        MD:"Maryland",ME:"Maine",MI:"Michigan",MN:"Minnesota",MO:"Missouri",
+        MS:"Mississippi",MT:"Montana",NC:"North-Carolina",ND:"North-Dakota",
+        NE:"Nebraska",NH:"New-Hampshire",NJ:"New-Jersey",NM:"New-Mexico",
+        NV:"Nevada",NY:"New-York",OH:"Ohio",OK:"Oklahoma",OR:"Oregon",
+        PA:"Pennsylvania",RI:"Rhode-Island",SC:"South-Carolina",SD:"South-Dakota",
+        TN:"Tennessee",TX:"Texas",UT:"Utah",VA:"Virginia",VT:"Vermont",
+        WA:"Washington",WI:"Wisconsin",WV:"West-Virginia",WY:"Wyoming",
+      };
+      const allStores = [];
+      for (const st of states) {
+        const name = stateNames[st] || st;
+        const url = `${this.url}/${name}/${st}`;
+        try {
+          const res = await fetch(url, { headers: this.headers });
+          const html = await res.text();
+          const marker = '"storeDirectory":';
+          const idx = html.indexOf(marker);
+          if (idx !== -1) {
+            const start = idx + marker.length;
+            let depth = 0, inStr = false, esc = false;
+            for (let i = start; i < html.length; i++) {
+              const c = html[i];
+              if (esc) { esc = false; continue; }
+              if (c === "\\") { esc = true; continue; }
+              if (c === '"') { inStr = !inStr; continue; }
+              if (inStr) continue;
+              if (c === "{") depth++;
+              if (c === "}") {
+                depth--;
+                if (depth === 0) {
+                  const dir = JSON.parse(html.slice(start, i + 1));
+                  for (const city of Object.values(dir)) {
+                    for (const s of city) allStores.push(s);
+                  }
+                  break;
+                }
+              }
+            }
+          }
+        } catch (e) {}
+        process.stdout.write(`\r  ${st}: ${allStores.length} stores`);
+        await new Promise((r) => setTimeout(r, 300));
+      }
+      console.log();
+      return allStores;
+    },
+    parseResponse(data) {
+      return (Array.isArray(data) ? data : []).map((d) => ({
+        name: d.storeName || "",
+        storeId: d.id || "",
+        address: d.address || "",
+        city: d.city || "",
+        state: d.state || "",
+        zip: d.zip || "",
+        country: "US",
+        phone: d.phone || "",
+        storeFeature: d.storeFeature || "",
+      }));
+    },
+  },
+
   carterlumber: {
     name: "Carter Lumber",
     type: "storepoint",
