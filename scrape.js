@@ -859,48 +859,58 @@ const CONFIGS = {
 
   target: {
     name: "Target",
-    type: "zipgrid",
-    batchSize: 5,
-    delayMs: 500,
-    baseUrl:
-      "https://redsky.target.com/redsky_aggregations/v1/web/nearby_stores_v1",
+    type: "storepoint",
+    url: "https://api.target.com/locations/v3/public",
+    params: {},
     headers: {
       "user-agent":
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
     },
-    buildRequest(zip) {
-      const params = new URLSearchParams({
-        limit: "20",
-        within: "100",
-        place: zip,
-        key: "8df66ea1e1fc070a6ea99e942431c9cd67a80f02",
-      });
-      return {
-        url: `${this.baseUrl}?${params}`,
-        options: { headers: this.headers },
-      };
+    fetchOverride: true,
+    async fetchData() {
+      const allStores = [];
+      let page = 1;
+      while (true) {
+        const url = `${this.url}?limit=10&page=${page}&key=8df66ea1e1fc070a6ea99e942431c9cd67a80f02`;
+        const res = await fetch(url, { headers: this.headers });
+        const data = await res.json();
+        const stores = Array.isArray(data) ? data : [];
+        if (stores.length === 0) break;
+        allStores.push(...stores);
+        process.stdout.write(`\r  Fetched ${allStores.length} stores (page ${page})`);
+        page++;
+        await new Promise((r) => setTimeout(r, 300));
+      }
+      console.log();
+      return allStores;
     },
     parseResponse(data) {
-      const stores = data?.data?.nearby_stores?.stores || [];
-      return stores.map((s) => {
-        const addr = s.mailing_address || {};
-        const geo = s.geographic_specifications?.latitude
-          ? s.geographic_specifications
-          : s.geofence || {};
-        return {
-          name: s.location_name || s.store_name || "",
-          storeId: s.store_id || s.location_id || "",
-          address: addr.address_line1 || "",
-          city: addr.city || "",
-          state: addr.state || "",
-          zip: addr.postal_code || "",
-          country: "US",
-          phone: s.main_voice_phone_number || s.phone_number || "",
-          latitude: geo.latitude || "",
-          longitude: geo.longitude || "",
-          storeType: s.store_type || s.type_code || "",
-        };
-      });
+      const retailTypes = new Set(["General Merch", "Small Format", "SuperTarget"]);
+      return (Array.isArray(data) ? data : [])
+        .filter((s) => retailTypes.has(s.sub_type_code))
+        .map((s) => {
+          const addr = (s.address || [])[0] || {};
+          const geo = s.geographic_specifications || {};
+          const phone = (s.contact_information || []).find(
+            (c) => c.building_area === "MAIN" && c.telephone_type === "VOICE"
+          );
+          const name =
+            (s.location_names || []).find((n) => n.name_type === "Proj Name")
+              ?.name || "";
+          return {
+            name: name,
+            storeId: String(s.location_id || ""),
+            address: addr.address_line1 || "",
+            city: addr.city || "",
+            state: addr.state || "",
+            zip: addr.postal_code || "",
+            country: "US",
+            phone: phone?.telephone_number || "",
+            latitude: geo.latitude || "",
+            longitude: geo.longitude || "",
+            storeType: s.sub_type_code || "",
+          };
+        });
     },
   },
 
@@ -930,21 +940,21 @@ const CONFIGS = {
     parseResponse(data) {
       return (data.storeList || []).map((d) => {
         const addr = d.address || {};
+        const info = d.storeInfo || {};
+        const phones = info.phoneNumbers?.[0] || {};
         return {
-          name: d.storeName || "",
-          storeId: d.storeId || "",
+          name: `CVS #${info.storeId || ""}`,
+          storeId: info.storeId || "",
           address: addr.street || "",
           city: addr.city || "",
           state: addr.state || "",
           zip: addr.zip || "",
           country: "US",
-          phone:
-            (d.phoneNumbers || []).find((p) => p.type === "store")?.number ||
-            "",
-          latitude: d.latitude || "",
-          longitude: d.longitude || "",
-          storeType: d.storeType || "",
-          services: (d.identifier || []).join(", "),
+          phone: phones.retail || phones.pharmacy || "",
+          latitude: info.latitude || "",
+          longitude: info.longitude || "",
+          storeType: info.storeType || "",
+          services: (info.identifier || []).join(", "),
         };
       });
     },

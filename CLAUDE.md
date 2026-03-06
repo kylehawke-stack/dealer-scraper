@@ -49,8 +49,8 @@ output/            — Scraped CSV files (gitignored)
 
 | Brand | Stores | Type | API Endpoint |
 |-------|--------|------|-------------|
-| Target | 1,958 | zipgrid | `redsky.target.com/redsky_aggregations/v1/web/nearby_stores_v1` (API key in URL) |
-| CVS | 7,298 | zipgrid | `cvs.com/api/locator/v2/stores/search` (x-api-key header) |
+| Target | 2,009 | storepoint (paginated) | `api.target.com/locations/v3/public` (page param, 10/page, API key in URL) |
+| CVS | 7,304 | zipgrid | `cvs.com/api/locator/v2/stores/search` (x-api-key header, nested storeInfo/address) |
 | Walgreens | 4,745 | zipgrid | POST `walgreens.com/locator/v1/stores/search` (10 results/query cap) |
 | Aldi | 2,648 | storepoint | `locator.uberall.com/api/locators/LETA2YVm6txbe0b9lS297XdxDX4qVQ/locations/all` |
 | Ross | 1,911 | storepoint (POST) | `llp-renderer.meetsoci.com/rossdressforless/rest/locatorsearch` (MeetSOCi) |
@@ -142,7 +142,7 @@ Search demand for "[brand] dealer/store near me" (normalized, STIHL = 100):
 ## Competitive Context
 - **ScrapeHero** has 5,125 datasets, 503 dealer-specific, priced $5-$100 per dataset
 - Our advantage: fresher data (weekly vs monthly), we already match/exceed their counts
-- **116,592 total records** across 21 completed brands (15 equipment + 6 retailers)
+- **116,649 total records** across 21 completed brands (15 equipment + 6 retailers)
 - Target categories: Lawn/Farm Equipment, Construction/Heavy Equipment, Powersports, Retail Chains
 
 ## Key Commands
