@@ -2057,6 +2057,248 @@ const CONFIGS = {
         }));
     },
   },
+
+  rockler: {
+    name: "Rockler Woodworking",
+    type: "storepoint", // Magento store API, single call gets all ~44 stores
+    url: "https://www.rockler.com/locator/store/nearyou",
+    params: {},
+    fetchOverride: true,
+    async fetchData() {
+      const res = await fetch(`${this.url}?limit=100&timezone=America/New_York`, {
+        headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
+      });
+      return res.json();
+    },
+    parseResponse(data) {
+      return (data.stores || []).map((d) => ({
+        name: d.name || "",
+        storeCode: d.code || "",
+        address: [d.address1, d.address2].filter(Boolean).join(" "),
+        city: d.city || "",
+        state: d.region_code || d.region || "",
+        zip: d.postcode || "",
+        country: "US",
+        phone: d.phone_number || "",
+        email: d.email || "",
+        latitude: d.latitude || "",
+        longitude: d.longitude || "",
+      }));
+    },
+  },
+
+  woodcraft: {
+    name: "Woodcraft",
+    type: "storepoint", // StoreMapper API, single call gets all ~65 stores
+    url: "https://storemapper-herokuapp-com.global.ssl.fastly.net/api/users/21588-nANJhE9qGU2lPBYt/stores.js",
+    params: {},
+    fetchOverride: true,
+    async fetchData() {
+      const res = await fetch(`${this.url}?callback=x`);
+      const text = await res.text();
+      // Strip JSONP wrapper: x({...})
+      const json = text.replace(/^x\(/, "").replace(/\)$/, "");
+      return JSON.parse(json);
+    },
+    parseResponse(data) {
+      return (data.stores || []).map((d) => {
+        // Format: "Street City, ST ZIP, Country" — no comma between street and city
+        const raw = d.address || "";
+        const m = raw.match(/^(.+),\s*([A-Z]{2})\s+(\d{5})/);
+        return {
+          name: d.name || "",
+          address: m ? m[1].trim() : raw,
+          city: "",
+          state: m ? m[2] : "",
+          zip: m ? m[3] : "",
+          country: "US",
+          phone: d.phone || "",
+          email: d.email || "",
+          website: d.url || "",
+          latitude: d.latitude || "",
+          longitude: d.longitude || "",
+        };
+      });
+    },
+  },
+
+  fastenal: {
+    name: "Fastenal",
+    type: "storepoint", // Google Places API with zip grid dedup
+    url: "https://places.googleapis.com/v1/places:searchText",
+    params: {},
+    headers: {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Key": process.env.GOOGLE_PLACES_API_KEY,
+      "X-Goog-FieldMask": "places.displayName,places.formattedAddress,places.location,places.nationalPhoneNumber,places.id",
+    },
+    fetchOverride: true,
+    async fetchData() {
+      const seen = new Set();
+      const allStores = [];
+      const { ZIP_GRID } = await import("./zip-grid.js");
+      for (let i = 0; i < ZIP_GRID.length; i++) {
+        const zip = ZIP_GRID[i];
+        try {
+          const res = await fetch(this.url, {
+            method: "POST",
+            headers: this.headers,
+            body: JSON.stringify({
+              textQuery: `Fastenal near ${zip}`,
+              maxResultCount: 20,
+            }),
+          });
+          const data = await res.json();
+          const places = data.places || [];
+          for (const p of places) {
+            if (p.id && !seen.has(p.id)) {
+              seen.add(p.id);
+              allStores.push(p);
+            }
+          }
+        } catch (e) {}
+        if ((i + 1) % 50 === 0 || i === ZIP_GRID.length - 1) {
+          process.stdout.write(`\r  ${i + 1}/${ZIP_GRID.length} zips | ${allStores.length} unique stores`);
+        }
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      console.log();
+      return allStores;
+    },
+    parseResponse(data) {
+      return (Array.isArray(data) ? data : []).map((p) => {
+        const addr = p.formattedAddress || "";
+        const parts = addr.split(", ");
+        const street = parts[0] || "";
+        const city = parts[1] || "";
+        const stateZip = (parts[2] || "").split(" ");
+        const state = stateZip[0] || "";
+        const zip = stateZip[1] || "";
+        return {
+          name: p.displayName?.text || "",
+          placeId: p.id || "",
+          address: street,
+          city,
+          state,
+          zip,
+          country: "US",
+          phone: p.nationalPhoneNumber || "",
+          latitude: p.location?.latitude || "",
+          longitude: p.location?.longitude || "",
+        };
+      });
+    },
+  },
+
+  grainger: {
+    name: "Grainger",
+    type: "storepoint", // Google Places API with zip grid dedup (same as Home Depot)
+    url: "https://places.googleapis.com/v1/places:searchText",
+    params: {},
+    headers: {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Key": process.env.GOOGLE_PLACES_API_KEY,
+      "X-Goog-FieldMask": "places.displayName,places.formattedAddress,places.location,places.nationalPhoneNumber,places.id",
+    },
+    fetchOverride: true,
+    async fetchData() {
+      const seen = new Set();
+      const allStores = [];
+      const { ZIP_GRID } = await import("./zip-grid.js");
+      for (let i = 0; i < ZIP_GRID.length; i++) {
+        const zip = ZIP_GRID[i];
+        try {
+          const res = await fetch(this.url, {
+            method: "POST",
+            headers: this.headers,
+            body: JSON.stringify({
+              textQuery: `Grainger industrial supply near ${zip}`,
+              maxResultCount: 20,
+            }),
+          });
+          const data = await res.json();
+          const places = data.places || [];
+          for (const p of places) {
+            if (p.id && !seen.has(p.id)) {
+              seen.add(p.id);
+              allStores.push(p);
+            }
+          }
+        } catch (e) {}
+        if ((i + 1) % 50 === 0 || i === ZIP_GRID.length - 1) {
+          process.stdout.write(`\r  ${i + 1}/${ZIP_GRID.length} zips | ${allStores.length} unique stores`);
+        }
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      console.log();
+      return allStores;
+    },
+    parseResponse(data) {
+      return (Array.isArray(data) ? data : []).map((p) => {
+        const addr = p.formattedAddress || "";
+        const parts = addr.split(", ");
+        const street = parts[0] || "";
+        const city = parts[1] || "";
+        const stateZip = (parts[2] || "").split(" ");
+        const state = stateZip[0] || "";
+        const zip = stateZip[1] || "";
+        return {
+          name: p.displayName?.text || "",
+          placeId: p.id || "",
+          address: street,
+          city,
+          state,
+          zip,
+          country: "US",
+          phone: p.nationalPhoneNumber || "",
+          latitude: p.location?.latitude || "",
+          longitude: p.location?.longitude || "",
+        };
+      });
+    },
+  },
+
+  festool: {
+    name: "Festool",
+    type: "storepoint", // Locally.com API, single call gets all ~2,028 dealers
+    url: "https://festool.locally.com/stores/conversion_data",
+    params: {},
+    fetchOverride: true,
+    async fetchData() {
+      const params = new URLSearchParams({
+        has_data: "true",
+        company_id: "261617",
+        inline: "1",
+        sort_by: "proximity",
+        no_variants: "0",
+        dealers_company_id: "261617",
+        only_store_id: "false",
+        uses_alt_coords: "false",
+        q: "false",
+        map_ne_lat: "72",
+        map_ne_lng: "-60",
+        map_sw_lat: "18",
+        map_sw_lng: "-180",
+      });
+      const res = await fetch(`${this.url}?${params}`);
+      return res.json();
+    },
+    parseResponse(data) {
+      return (data.markers || [])
+        .filter((d) => d.country === "US")
+        .map((d) => ({
+          name: d.name || "",
+          address: d.address || "",
+          city: d.city || "",
+          state: d.state || "",
+          zip: d.zip || "",
+          country: "US",
+          phone: d.phone || "",
+          latitude: d.lat || "",
+          longitude: d.lng || "",
+        }));
+    },
+  },
 };
 
 // --- CSV Export ---
