@@ -18,6 +18,9 @@
 import fs from "fs";
 import path from "path";
 import { createHash, createHmac } from "crypto";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const brand = process.argv[2];
 if (!brand) {
