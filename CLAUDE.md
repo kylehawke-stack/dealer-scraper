@@ -12,6 +12,7 @@ scrape.js          — Main scraper engine with brand configs (storepoint, pagin
 recon.js           — Playwright-based API discovery tool for new dealer locator sites
 recon-targeted.js  — Enhanced recon with cookie banner dismissal
 upload.js          — S3 uploader (latest.csv + dated archive + metadata.json per brand)
+qc.js              — Data quality checker (completeness, duplicates, format validation, auto-fix)
 lat-lng-grid.js    — Pre-computed US lat/lng grid (~1,663 points, ~70mi spacing)
 zip-grid.js        — US zip code grid (892 zips, ~50mi spacing) used by zipgrid scrapers
 .github/workflows/weekly-scrape.yml — Weekly cron (Sunday 6am UTC)
@@ -29,7 +30,7 @@ output/            — Scraped CSV files (gitignored)
 
 | Brand | Dealers | Type | API Endpoint |
 |-------|---------|------|-------------|
-| RC Mowers | 25 | storepoint | `api26.storepoint.co/v2/167ffd22479894/locations` |
+| RC Mowers | 86 | storepoint | `api26.storepoint.co/v2/167ffd22479894/locations` |
 | STIHL | 10,243 | grid | `252092-stihl-b2camer.adobeioruntime.net/apis/us-b2c/dealerdatahub/search` |
 | DeWalt | 46,973 | paginated | `gd3e42amdv.us-east-1.awsapprunner.com/v1/locations` (Agora JWT auth) |
 | Husqvarna | 8,202 | embedded | All dealers in page HTML at `husqvarna.com/us/dealer-locator/` |
@@ -44,6 +45,12 @@ output/            — Scraped CSV files (gitignored)
 | Case CE | 312 | grid | `casece.com/apirequest/dealer-locator/get-dealer-by-geo-code` (CNH Industrial) |
 | Case IH | 685 | grid | `caseih.com/apirequest/dealer-locator/get-dealer-by-geo-code` (CNH Industrial) |
 | New Holland | 661 | grid | `agriculture.newholland.com/apirequest/dealer-locator/get-dealer-by-geo-code` (CNH Industrial) |
+| EGO Power+ | 7,496 | storepoint | `egopowerplus.com/storelocator/index/locations` (Magento, single GET) |
+| Snapper | 1,315 | storepoint | `briggsandstratton.com/_hcms/api/dealer-locator` (B&S HubSpot, brandName=Snapper) |
+| Walker Mowers | 592 | storepoint | `apps.walker.com/public/dealerlocator/pins-v2.php` (two-phase: pins + detail) |
+| Spartan Mowers | 550 | embedded | `joinspartannation.com/dealer-locator/page/` (Google Maps markers in HTML) |
+| Bad Boy Mowers | 1,268 | zipgrid | POST `badboycountry.com/locate/search` (form-encoded, no auth) |
+| Wright Mowers | 674 | grid | `wrightmfg.com/tools/dealer_locator/dealer_map_get_dealer_info.php` (reCAPTCHA bypassed) |
 
 ## Completed Brands — Retailers
 
@@ -162,7 +169,7 @@ Search demand for "[brand] dealer/store near me" (normalized, STIHL = 100):
 ## Competitive Context
 - **ScrapeHero** has 5,125 datasets, 503 dealer-specific, priced $5-$100 per dataset
 - Our advantage: fresher data (weekly vs monthly), we already match/exceed their counts
-- **127,640 total records** across 28 completed brands (15 equipment + 6 retailers + 7 hardware)
+- **150,034 total records** across 37 completed brands (21 equipment + 6 retailers + 7 hardware + 3 misc)
 - Target categories: Lawn/Farm Equipment, Construction/Heavy Equipment, Powersports, Retail Chains, Hardware Stores
 
 ## Key Commands
@@ -172,7 +179,11 @@ node scrape.js stihl               # Run a specific scraper
 node scrape.js toro --force         # Run sample-only brand
 node recon.js <url> [zip]          # Discover API for a new site
 node recon-targeted.js <url> [zip] # Same but dismisses cookie banners
-node upload.js <brand>             # Upload to S3 (needs env vars)
+node upload.js <brand>             # Upload to S3
+node qc.js                         # Quality check all brands
+node qc.js --verbose               # Show per-field fill rates
+node qc.js --fix                   # Auto-rescrape failed brands
+node qc.js stihl ego               # Check specific brands
 ```
 
 ## Permissions
