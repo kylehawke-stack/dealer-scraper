@@ -13,8 +13,11 @@
 
 import fs from "fs";
 import path from "path";
+import dotenv from "dotenv";
 import { LAT_LNG_GRID } from "./lat-lng-grid.js";
 import { ZIP_GRID } from "./zip-grid.js";
+
+dotenv.config();
 
 // --- Scraper Configs ---
 // Each config defines how to hit a specific company's dealer API
@@ -1523,7 +1526,7 @@ const CONFIGS = {
     params: {},
     headers: {
       "Content-Type": "application/json",
-      "X-Goog-Api-Key": "AIzaSyDWat3WFfv5g5H2BZZrItdECmfmjZsCJOk",
+      "X-Goog-Api-Key": process.env.GOOGLE_PLACES_API_KEY,
       "X-Goog-FieldMask": "places.displayName,places.formattedAddress,places.location,places.nationalPhoneNumber,places.id",
     },
     fetchOverride: true,
