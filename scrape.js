@@ -27,22 +27,41 @@ const CONFIGS = {
     name: "RC Mowers",
     type: "storepoint", // single call gets all locations
     url: "https://api26.storepoint.co/v2/167ffd22479894/locations",
-    params: { lat: 39.8283, long: -98.5795, radius: 5000 },
+    params: {},
     parseResponse(data) {
-      return data.results.locations.map((loc) => ({
-        name: loc.name || "",
-        address: loc.street_address || "",
-        city: loc.city || "",
-        state: loc.state || "",
-        zip: loc.postcode || "",
-        country: loc.country || "",
-        phone: loc.phone || "",
-        email: loc.email || "",
-        website: loc.website || "",
-        description: loc.description || "",
-        latitude: loc.loc_lat || "",
-        longitude: loc.loc_long || "",
-      }));
+      const stateAbbrevs = {AL:1,AK:1,AZ:1,AR:1,CA:1,CO:1,CT:1,DE:1,FL:1,GA:1,HI:1,ID:1,IL:1,IN:1,IA:1,KS:1,KY:1,LA:1,ME:1,MD:1,MA:1,MI:1,MN:1,MS:1,MO:1,MT:1,NE:1,NV:1,NH:1,NJ:1,NM:1,NY:1,NC:1,ND:1,OH:1,OK:1,OR:1,PA:1,RI:1,SC:1,SD:1,TN:1,TX:1,UT:1,VT:1,VA:1,WA:1,WV:1,WI:1,WY:1,DC:1};
+      const stateNames = {alabama:"AL",alaska:"AK",arizona:"AZ",arkansas:"AR",california:"CA",colorado:"CO",connecticut:"CT",delaware:"DE",florida:"FL",georgia:"GA",hawaii:"HI",idaho:"ID",illinois:"IL",indiana:"IN",iowa:"IA",kansas:"KS",kentucky:"KY",louisiana:"LA",maine:"ME",maryland:"MD",massachusetts:"MA",michigan:"MI",minnesota:"MN",mississippi:"MS",missouri:"MO",montana:"MT",nebraska:"NE",nevada:"NV","new hampshire":"NH","new jersey":"NJ","new mexico":"NM","new york":"NY","north carolina":"NC","north dakota":"ND",ohio:"OH",oklahoma:"OK",oregon:"OR",pennsylvania:"PA","rhode island":"RI","south carolina":"SC","south dakota":"SD",tennessee:"TN",texas:"TX",utah:"UT",vermont:"VT",virginia:"VA",washington:"WA","west virginia":"WV",wisconsin:"WI",wyoming:"WY"};
+      return data.results.locations.map((loc) => {
+        const raw = loc.streetaddress || "";
+        // Match "..., City, ST ZIP" or "..., City, StateName ZIP"
+        const m = raw.match(/^(.+?),\s*(.+?),\s*([A-Z]{2})\s+(\d{5})(?:\s|$)/) ||
+                  raw.match(/^(.+?),\s*(.+?),\s*([A-Za-z ]+?)\s+(\d{5})(?:\s|$)/);
+        let address = "", city = "", state = "", zip = "";
+        if (m) {
+          address = m[1].trim();
+          city = m[2].trim();
+          const st = m[3].trim();
+          state = stateAbbrevs[st.toUpperCase()] ? st.toUpperCase() : (stateNames[st.toLowerCase()] || st);
+          zip = m[4];
+        } else {
+          // Fallback: just use the whole string as address
+          address = raw;
+        }
+        return {
+          name: loc.name || "",
+          address,
+          city,
+          state,
+          zip,
+          country: "US",
+          phone: loc.phone || "",
+          email: loc.email || "",
+          website: loc.website || "",
+          description: loc.description || "",
+          latitude: loc.loc_lat || "",
+          longitude: loc.loc_long || "",
+        };
+      });
     },
   },
 
@@ -1585,6 +1604,457 @@ const CONFIGS = {
           longitude: p.location?.longitude || "",
         };
       });
+    },
+  },
+
+  // --- QSR / Food & Beverage ---
+
+  tacobell: {
+    name: "Taco Bell",
+    type: "storepoint",
+    url: "https://prod-cdn.us.yextapis.com/v2/accounts/me/search/vertical/query",
+    params: {},
+    headers: { "User-Agent": "Mozilla/5.0" },
+    fetchOverride: true,
+    async fetchData() {
+      const allStores = [];
+      const pageSize = 50;
+      let offset = 0;
+      let total = Infinity;
+
+      while (offset < total) {
+        const params = new URLSearchParams({
+          experienceKey: "taco-bell-react-pages",
+          api_key: "065dec2e7f94fe7b3712bca7639e97c9",
+          v: "20220511",
+          locale: "en",
+          input: "",
+          verticalKey: "hours-locator",
+          filters: JSON.stringify({
+            "builtin.location": {
+              "$near": { lat: 39.8283, lng: -98.5795, radius: 5000000 },
+            },
+          }),
+          retrieveFacets: "false",
+          skipSpellCheck: "false",
+          sessionTrackingEnabled: "false",
+          sortBys: "[]",
+          source: "STANDARD",
+          limit: String(pageSize),
+          offset: String(offset),
+        });
+        const res = await fetch(`${this.url}?${params}`, {
+          headers: this.headers,
+        });
+        const data = await res.json();
+        const resp = data.response || {};
+        total = resp.resultsCount || 0;
+        const results = resp.results || [];
+        if (results.length === 0) break;
+        for (const r of results) {
+          allStores.push(r.data);
+        }
+        offset += results.length;
+        process.stdout.write(`\r  ${offset}/${total} locations`);
+        await new Promise((r) => setTimeout(r, 200));
+      }
+      console.log();
+      return allStores;
+    },
+    parseResponse(data) {
+      return (Array.isArray(data) ? data : []).map((d) => ({
+        name: d.name || "Taco Bell",
+        storeNumber: d.id || "",
+        address: d.address?.line1 || "",
+        city: d.address?.city || "",
+        state: d.address?.region || "",
+        zip: d.address?.postalCode || "",
+        country: d.address?.countryCode || "US",
+        phone: d.mainPhone || "",
+        latitude: d.yextDisplayCoordinate?.latitude || d.geocodedCoordinate?.latitude || "",
+        longitude: d.yextDisplayCoordinate?.longitude || d.geocodedCoordinate?.longitude || "",
+        website: d.website || "",
+      }));
+    },
+  },
+
+  oreilly: {
+    name: "O'Reilly Auto Parts",
+    type: "storepoint",
+    url: "https://locations.oreillyauto.com/sitemap.xml",
+    params: {},
+    headers: { "User-Agent": "Mozilla/5.0" },
+    fetchOverride: true,
+    async fetchData() {
+      // Phase 1: Get all en-us store URLs from sitemap
+      const sitemapRes = await fetch(this.url, { headers: this.headers });
+      const sitemapXml = await sitemapRes.text();
+      const storeUrls = [
+        ...sitemapXml.matchAll(
+          /<loc>(https:\/\/locations\.oreillyauto\.com\/en-us\/[a-z]{2}\/[^<]+autoparts-\d+\.html)<\/loc>/g
+        ),
+      ].map((m) => m[1]);
+      console.log(`  Found ${storeUrls.length} store pages in sitemap`);
+
+      // Phase 2: Fetch each store page and extract JSON-LD
+      const allStores = [];
+      const BATCH = 10;
+      for (let i = 0; i < storeUrls.length; i += BATCH) {
+        const batch = storeUrls.slice(i, i + BATCH);
+        const results = await Promise.allSettled(
+          batch.map(async (url) => {
+            const res = await fetch(url, { headers: this.headers });
+            const html = await res.text();
+            const match = html.match(
+              /<script type="application\/ld\+json">([\s\S]*?)<\/script>/
+            );
+            if (match) return JSON.parse(match[1]);
+            return null;
+          })
+        );
+        for (const r of results) {
+          if (r.status === "fulfilled" && r.value) {
+            const d = Array.isArray(r.value) ? r.value[0] : r.value;
+            if (d) allStores.push(d);
+          }
+        }
+        process.stdout.write(
+          `\r  ${Math.min(i + BATCH, storeUrls.length)}/${storeUrls.length} pages | ${allStores.length} stores`
+        );
+        await new Promise((r) => setTimeout(r, 200));
+      }
+      console.log();
+      return allStores;
+    },
+    parseResponse(data) {
+      return (Array.isArray(data) ? data : []).map((d) => ({
+        name: d.name || "",
+        address: d.address?.streetAddress?.trim() || "",
+        city: d.address?.addressLocality || "",
+        state: d.address?.addressRegion || "",
+        zip: d.address?.postalCode || "",
+        country: d.address?.addressCountry || "US",
+        phone: d.address?.telephone || "",
+        latitude: d.geo?.latitude || "",
+        longitude: d.geo?.longitude || "",
+        url: d.url || "",
+        hours: d.openingHours || "",
+      }));
+    },
+  },
+
+  // ==========================================
+  // ZERO-TURN & LAWN MOWER BRANDS
+  // ==========================================
+
+  ego: {
+    name: "EGO Power+",
+    type: "storepoint", // single GET returns all ~8,888 stores
+    url: "https://egopowerplus.com/storelocator/index/locations",
+    params: {},
+    headers: {
+      "user-agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "x-requested-with": "XMLHttpRequest",
+    },
+    parseResponse(data) {
+      return (Array.isArray(data) ? data : [])
+        .filter((d) => d.country === "US")
+        .map((d) => ({
+          name: d.name || "",
+          address: [d.address, d.address2].filter(Boolean).join(" "),
+          city: d.city || "",
+          state: d.state || "",
+          zip: d.zipcode || "",
+          country: "US",
+          phone: d.telephone || "",
+          email: d.email || "",
+          website: d.website || "",
+          latitude: d.lat || "",
+          longitude: d.lng || "",
+          category: d.category || "",
+          storeId: d.id || "",
+        }));
+    },
+  },
+
+  snapper: {
+    name: "Snapper (Briggs & Stratton)",
+    type: "storepoint", // single POST with large radius gets all dealers
+    url: "https://www.briggsandstratton.com/_hcms/api/dealer-locator",
+    params: {},
+    headers: {
+      "content-type": "application/json",
+      "user-agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    },
+    fetchOverride: true,
+    async fetchData() {
+      const res = await fetch(this.url, {
+        method: "POST",
+        headers: this.headers,
+        body: JSON.stringify({
+          brandName: "Snapper",
+          latitude: 39.8283,
+          longitude: -98.5795,
+          radius: 5000,
+          metricFlag: false,
+        }),
+      });
+      return res.json();
+    },
+    parseResponse(data) {
+      return (Array.isArray(data) ? data : [])
+        .filter((d) => d.country === "US")
+        .map((d) => ({
+          name: d.dealerName || "",
+          dealerId: d.dealerId || "",
+          address: [d.address1, d.address2, d.address3]
+            .filter(Boolean)
+            .join(" "),
+          city: d.city || "",
+          state: d.state || "",
+          zip: d.zip || "",
+          country: "US",
+          phone: d.phone || "",
+          email: d.email || "",
+          website: d.website || "",
+          latitude: d.latitude || "",
+          longitude: d.longitude || "",
+          sales: d.sales || false,
+          service: d.service || false,
+          productSegments: d.productSegments || "",
+        }));
+    },
+  },
+
+  walker: {
+    name: "Walker Mowers",
+    type: "storepoint", // two-phase: pins list + batch detail
+    url: "https://apps.walker.com/public/dealerlocator/pins-v2.php",
+    params: {},
+    headers: {
+      "user-agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      referer: "https://www.walker.com/dealerlocator",
+    },
+    fetchOverride: true,
+    async fetchData() {
+      // Phase 1: Get all pin IDs
+      const pinsResp = await fetch(this.url, { headers: this.headers });
+      const pinsText = await pinsResp.text();
+      // Parse "var pins=[...]" JS — has trailing commas, so fix before JSON.parse
+      const match = pinsText.match(/var\s+pins\s*=\s*(\[[\s\S]*?\]);/);
+      if (!match) throw new Error("Could not parse pins JS");
+      // Fix trailing commas: [1,1,,] → [1,1,null,null] and [null,] → [null]
+      let fixed = match[1];
+      // Repeatedly replace consecutive commas until stable
+      while (fixed.includes(",,")) fixed = fixed.replace(/,,/g, ",null,");
+      fixed = fixed.replace(/,\s*]/g, "]");
+      const pins = JSON.parse(fixed);
+      console.log(`  Got ${pins.length} pins, fetching details...`);
+
+      // Phase 2: Fetch details in batches of 50
+      const allDealers = [];
+      for (let i = 0; i < pins.length; i += 50) {
+        const batch = pins.slice(i, i + 50);
+        const ids = batch.map((p) => p[0]).join(",");
+        const detailResp = await fetch(`${this.url}?ids=${ids}`, {
+          headers: this.headers,
+        });
+        const details = await detailResp.json();
+        allDealers.push(...details);
+        if (i + 50 < pins.length) await new Promise((r) => setTimeout(r, 200));
+      }
+      return allDealers;
+    },
+    parseResponse(data) {
+      return (Array.isArray(data) ? data : [])
+        .filter((d) => {
+          // Filter to US: parse state from address HTML, check for US state abbreviation
+          const html = d.html || "";
+          const addrMatch = html.match(/Address:<\/strong><br>.+?<br>(.+?)<br>/);
+          if (!addrMatch) return false;
+          const stateAbbrevs = "AL,AK,AZ,AR,CA,CO,CT,DE,FL,GA,HI,ID,IL,IN,IA,KS,KY,LA,ME,MD,MA,MI,MN,MS,MO,MT,NE,NV,NH,NJ,NM,NY,NC,ND,OH,OK,OR,PA,RI,SC,SD,TN,TX,UT,VT,VA,WA,WV,WI,WY,DC,PR,GU,VI";
+          const cszMatch = addrMatch[1].match(/,\s*([A-Z]{2})\s+\d{5}/);
+          return cszMatch && stateAbbrevs.includes(cszMatch[1]);
+        })
+        .map((d) => {
+          // Parse address from HTML: "Address:</strong><br>STREET<br>CITY, ST ZIP<br>"
+          const html = d.html || "";
+          const addrMatch = html.match(/Address:<\/strong><br>(.+?)<br>(.+?)<br>/);
+          let address = "", city = "", state = "", zip = "";
+          if (addrMatch) {
+            address = addrMatch[1].trim();
+            const cszMatch = addrMatch[2].trim().match(/^(.+?),\s*([A-Z]{2})\s+(\d{5})/);
+            if (cszMatch) {
+              city = cszMatch[1];
+              state = cszMatch[2];
+              zip = cszMatch[3];
+            }
+          }
+          const phoneMatch = html.match(/href="tel:\/?\/?([^"]+)"/);
+
+          return {
+            name: d.name || "",
+            dealerId: d.id || "",
+            address,
+            city,
+            state,
+            zip,
+            country: "US",
+            phone: phoneMatch?.[1]?.replace(/^\/\//, "") || "",
+            website: d.website?.trim() || "",
+            dealerUrl: d.dealer_site || "",
+            latitude: d.lat || "",
+            longitude: d.lng || "",
+          };
+        });
+    },
+  },
+
+  spartan: {
+    name: "Spartan Mowers",
+    type: "embedded", // all 552 dealers in single HTML page
+    url: "https://joinspartannation.com/dealer-locator/page/?search_location=66062&dealer_type=both&submit=",
+    headers: {
+      "user-agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    },
+    extractDealers(html) {
+      const dealers = [];
+      // Content is spread across lines with '+' concatenation — collect each block
+      const blockPattern = /infoWindow\[\d+\]\s*=\s*new\s+google\.maps\.InfoWindow\(\{[\s\S]*?\}\);/g;
+      const latLngPattern = /new\s+google\.maps\.LatLng\(([-\d.]+),([-\d.]+)\)/g;
+
+      const latLngs = [];
+      let m;
+      while ((m = latLngPattern.exec(html)) !== null) {
+        latLngs.push({ lat: m[1], lng: m[2] });
+      }
+
+      let blockIdx = 0;
+      while ((m = blockPattern.exec(html)) !== null) {
+        const block = m[0];
+        // Reconstruct the HTML by stripping JS string concatenation
+        const contentHtml = block
+          .replace(/.*content:\s*/, "")
+          .replace(/\}\);$/, "")
+          .replace(/'\s*\+\s*'/g, "")
+          .replace(/^'|'$/g, "")
+          .replace(/\\'/g, "'");
+
+        const nameMatch = contentHtml.match(/tracking-1">([^<]+)<\/div>/);
+        const addrDivs = [...contentHtml.matchAll(/<div>([^<]+)<\/div>/g)];
+        const phoneMatch = contentHtml.match(/href="tel:([^"]+)"/);
+        const dealerIdMatch = contentHtml.match(/data-dealer-id="(\d+)"/);
+
+        const address = addrDivs[0]?.[1]?.trim() || "";
+        const cityLine = addrDivs[1]?.[1]?.trim() || "";
+        const cszMatch = cityLine.match(/^(.+?),\s*([A-Z]{2})\s+(\d{5})/);
+
+        dealers.push({
+          name: nameMatch?.[1]?.trim() || "",
+          dealerId: dealerIdMatch?.[1] || "",
+          address,
+          city: cszMatch?.[1] || "",
+          state: cszMatch?.[2] || "",
+          zip: cszMatch?.[3] || "",
+          country: "US",
+          phone: phoneMatch?.[1] || "",
+          latitude: latLngs[blockIdx]?.lat || "",
+          longitude: latLngs[blockIdx]?.lng || "",
+        });
+        blockIdx++;
+      }
+      return dealers;
+    },
+    parseResponse(dealers) {
+      // Filter to US (exclude international)
+      return dealers.filter((d) => d.state && d.state.length === 2);
+    },
+  },
+
+  badboy: {
+    name: "Bad Boy Mowers",
+    type: "zipgrid",
+    batchSize: 5,
+    delayMs: 500,
+    baseUrl: "https://badboycountry.com/locate/search",
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+      "user-agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    },
+    buildRequest(zip) {
+      return {
+        url: this.baseUrl,
+        options: {
+          method: "POST",
+          headers: this.headers,
+          body: `search=${zip}&dealer_types=%5B%22mowers%22%5D`,
+        },
+      };
+    },
+    parseResponse(data) {
+      return (Array.isArray(data) ? data : [])
+        .filter((d) => d.country === "US" || d.country === "United States")
+        .map((d) => ({
+          name: d.name || "",
+          dealerId: d.id || "",
+          address: [d.address_1, d.address_2].filter(Boolean).join(" "),
+          city: d.city || "",
+          state: d.state || "",
+          zip: d.postal_code || "",
+          country: "US",
+          phone: d.phone_number || "",
+          email: d.email || "",
+          website: d.website || "",
+          latitude: d.latitude || "",
+          longitude: d.longitude || "",
+          mowerDealer: d.mower_dealer || 0,
+          tractorDealer: d.tractor_dealer || 0,
+          certified: d.certified || "",
+        }));
+    },
+  },
+
+  wright: {
+    name: "Wright Mowers",
+    type: "grid",
+    baseUrl: "https://www.wrightmfg.com/tools/dealer_locator/dealer_map_get_dealer_info.php",
+    searchRadiusMiles: 500,
+    headers: {
+      "user-agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    },
+    buildUrl(lat, lng) {
+      const params = new URLSearchParams({
+        lat_var: lat.toString(),
+        long_var: lng.toString(),
+        radius: this.searchRadiusMiles.toString(),
+        recaptcha_res: "blah",
+        validation_occured: "has_validated",
+        global_zoom_level: "5",
+      });
+      return `${this.baseUrl}?${params}`;
+    },
+    parseResponse(data) {
+      return (Array.isArray(data) ? data : [])
+        .filter((d) => d.status === "success" && d.own_country === "United States")
+        .map((d) => ({
+          name: d.name || "",
+          dealerId: d.ogd_owners_id || "",
+          address: [d.own_street_number, d.own_route].filter(Boolean).join(" "),
+          city: d.own_locality || "",
+          state: d.state || "",
+          zip: d.own_postal_code || "",
+          country: "US",
+          phone: d.phone || "",
+          website: d.url || "",
+          latitude: d.ogd_lat || "",
+          longitude: d.ogd_long || "",
+        }));
     },
   },
 };

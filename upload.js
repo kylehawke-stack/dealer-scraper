@@ -37,7 +37,7 @@ if (!bucket || !accessKey || !secretKey) {
 
 // Find the most recent CSV for this brand
 const outputDir = path.join(process.cwd(), "output");
-const files = fs.readdirSync(outputDir).filter((f) => f.startsWith(brand) && f.endsWith(".csv"));
+const files = fs.readdirSync(outputDir).filter((f) => f.startsWith(`${brand}-dealers-`) && f.endsWith(".csv"));
 files.sort().reverse();
 
 if (files.length === 0) {
@@ -95,7 +95,7 @@ async function s3Put(key, body, contentType = "text/csv") {
     createHash("sha256").update(canonicalRequest).digest("hex"),
   ].join("\n");
 
-  const signingKey = ["aws4_request", "s3", region, shortDate].reduce(
+  const signingKey = [shortDate, region, "s3", "aws4_request"].reduce(
     (key, msg) => createHmac("sha256", key).update(msg).digest(),
     `AWS4${secretKey}`
   );
