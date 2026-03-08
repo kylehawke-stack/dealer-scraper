@@ -1248,52 +1248,77 @@ const CONFIGS = {
 
   acehardware: {
     name: "Ace Hardware",
-    type: "embedded",
-    url: "https://www.acehardware.com/store-directory",
-    headers: {
-      "user-agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    },
-    extractDealers(html) {
-      const marker = 'storeDirectory">[';
-      const start = html.indexOf(marker);
-      if (start === -1) throw new Error("Could not find store data in page");
-      const arrStart = html.indexOf("[", start);
-      let depth = 0;
-      let inStr = false;
-      let escape = false;
-      for (let i = arrStart; i < html.length; i++) {
-        const c = html[i];
-        if (escape) { escape = false; continue; }
-        if (c === "\\") { escape = true; continue; }
-        if (c === '"') { inStr = !inStr; continue; }
-        if (inStr) continue;
-        if (c === "[") depth++;
-        else if (c === "]") {
-          depth--;
-          if (depth === 0) {
-            let arrText = html.slice(arrStart, i + 1)
-              .replace(/&amp;/g, "&").replace(/&lt;/g, "<")
-              .replace(/&gt;/g, ">").replace(/&quot;/g, '"')
-              .replace(/&#39;/g, "'");
-            return JSON.parse(arrText);
-          }
-        }
+    type: "storepoint",
+    url: "https://www.acehardware.com/api/commerce/storefront/locationUsageTypes/SP/locations",
+    params: {},
+    headers: {},
+    fetchOverride: true,
+    async fetchData() {
+      // Kibo Commerce API is Cloudflare-protected — need stealth browser to bypass
+      const puppeteer = (await import("puppeteer-extra")).default;
+      const StealthPlugin = (await import("puppeteer-extra-plugin-stealth")).default;
+      puppeteer.use(StealthPlugin());
+      const browser = await puppeteer.launch({ headless: "new", args: ["--no-sandbox"] });
+      const page = await browser.newPage();
+      await page.goto("https://www.acehardware.com/store-details", { waitUntil: "networkidle0", timeout: 30000 });
+      await new Promise((r) => setTimeout(r, 3000));
+
+      const allItems = [];
+      const pageSize = 200;
+      // Paginate through all stores from within browser context
+      const totalCount = await page.evaluate(async (ps) => {
+        const res = await fetch(`/api/commerce/storefront/locationUsageTypes/SP/locations?pageSize=${ps}&startIndex=0&sortBy=code%20asc`, {
+          headers: { "x-vol-catalog": "1", "x-vol-locale": "en-US", "x-vol-site": "37138", "x-vol-tenant": "24645", "x-vol-master-catalog": "1", accept: "application/json", "x-vol-currency": "USD" },
+        });
+        const data = await res.json();
+        return data.totalCount || 0;
+      }, pageSize);
+
+      console.log(`  Total stores in API: ${totalCount}`);
+      const pages = Math.ceil(totalCount / pageSize);
+
+      for (let p = 0; p < pages; p++) {
+        const items = await page.evaluate(async (ps, si) => {
+          const res = await fetch(`/api/commerce/storefront/locationUsageTypes/SP/locations?pageSize=${ps}&startIndex=${si}&sortBy=code%20asc`, {
+            headers: { "x-vol-catalog": "1", "x-vol-locale": "en-US", "x-vol-site": "37138", "x-vol-tenant": "24645", "x-vol-master-catalog": "1", accept: "application/json", "x-vol-currency": "USD" },
+          });
+          const data = await res.json();
+          return (data.items || []).map((d) => ({
+            name: d.name || "",
+            code: d.code || "",
+            address1: d.address?.address1 || "",
+            address2: d.address?.address2 || "",
+            city: d.address?.cityOrTown || "",
+            state: d.address?.stateOrProvince || "",
+            zip: d.address?.postalOrZipCode || "",
+            country: d.address?.countryCode || "",
+            phone: d.phone || "",
+            lat: d.geo?.lat || "",
+            lng: d.geo?.lng || "",
+          }));
+        }, pageSize, p * pageSize);
+        allItems.push(...items);
+        process.stdout.write(`\r  Page ${p + 1}/${pages} | ${allItems.length} stores`);
+        await new Promise((r) => setTimeout(r, 500));
       }
-      throw new Error("Could not parse store JSON array");
+      console.log();
+      await browser.close();
+      return allItems;
     },
     parseResponse(data) {
       return data
-        .filter((d) => d.address?.countryCode === "US")
+        .filter((d) => d.country === "US")
         .map((d) => ({
-          name: d.name || "",
-          storeCode: d.code || "",
-          address: [d.address?.address1, d.address?.address2].filter(Boolean).join(" ").trim(),
-          city: d.address?.cityOrTown || "",
-          state: d.address?.stateOrProvince || "",
-          zip: d.address?.postalOrZipCode || "",
+          name: d.name,
+          storeCode: d.code,
+          address: [d.address1, d.address2].filter(Boolean).join(" ").trim(),
+          city: d.city,
+          state: d.state,
+          zip: d.zip,
           country: "US",
-          phone: d.formattedPhoneNumber || d.phone || "",
+          phone: d.phone,
+          latitude: d.lat,
+          longitude: d.lng,
         }));
     },
   },
@@ -2297,6 +2322,617 @@ const CONFIGS = {
           latitude: d.lat || "",
           longitude: d.lng || "",
         }));
+    },
+  },
+
+  // --- Mid-States Distributing Members ---
+
+  buchheit: {
+    name: "Buchheit",
+    type: "storepoint",
+    url: "https://www.buchheits.com/backend/api/v1/allstoreslist/",
+    params: { status: "Active", limit: "100", offset: "0", search: "", sorton: "id", sorttype: "asc" },
+    headers: {
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    },
+    parseResponse(raw) {
+      const stateMap = { Alabama: "AL", Alaska: "AK", Arizona: "AZ", Arkansas: "AR", California: "CA", Colorado: "CO", Connecticut: "CT", Delaware: "DE", Florida: "FL", Georgia: "GA", Hawaii: "HI", Idaho: "ID", Illinois: "IL", Indiana: "IN", Iowa: "IA", Kansas: "KS", Kentucky: "KY", Louisiana: "LA", Maine: "ME", Maryland: "MD", Massachusetts: "MA", Michigan: "MI", Minnesota: "MN", Mississippi: "MS", Missouri: "MO", Montana: "MT", Nebraska: "NE", Nevada: "NV", "New Hampshire": "NH", "New Jersey": "NJ", "New Mexico": "NM", "New York": "NY", "North Carolina": "NC", "North Dakota": "ND", Ohio: "OH", Oklahoma: "OK", Oregon: "OR", Pennsylvania: "PA", "Rhode Island": "RI", "South Carolina": "SC", "South Dakota": "SD", Tennessee: "TN", Texas: "TX", Utah: "UT", Vermont: "VT", Virginia: "VA", Washington: "WA", "West Virginia": "WV", Wisconsin: "WI", Wyoming: "WY" };
+      const stores = raw[0]?.data || [];
+      return stores.map((d) => ({
+        name: d.storename || "",
+        address: d.address1 || "",
+        city: d.city || "",
+        state: stateMap[d.state_name] || d.state_name || "",
+        zip: d.zipcode || "",
+        country: "US",
+        phone: (d.phonenumber || "").replace(/^\+1\s*/, ""),
+        latitude: d.latitude || "",
+        longitude: d.longitude || "",
+      }));
+    },
+  },
+
+  bigrholdings: {
+    name: "Big R (Holdings)",
+    type: "storepoint",
+    url: "https://api.randemretail.online/public/api/location",
+    params: {},
+    fetchOverride: true,
+    async fetchData() {
+      const res = await fetch(this.url, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json; charset=UTF-8",
+          "x-randem-application-id": "a9dea1f0-f376-42ab-94fd-f845e4f82110",
+          origin: "https://bigronline.com",
+        },
+        body: JSON.stringify({ SKUs: [], selectedStoreId: null, attributes: [] }),
+      });
+      return res.json();
+    },
+    parseResponse(data) {
+      const stateMap = { Alabama: "AL", Alaska: "AK", Arizona: "AZ", Arkansas: "AR", California: "CA", Colorado: "CO", Connecticut: "CT", Delaware: "DE", Florida: "FL", Georgia: "GA", Hawaii: "HI", Idaho: "ID", Illinois: "IL", Indiana: "IN", Iowa: "IA", Kansas: "KS", Kentucky: "KY", Louisiana: "LA", Maine: "ME", Maryland: "MD", Massachusetts: "MA", Michigan: "MI", Minnesota: "MN", Mississippi: "MS", Missouri: "MO", Montana: "MT", Nebraska: "NE", Nevada: "NV", "New Hampshire": "NH", "New Jersey": "NJ", "New Mexico": "NM", "New York": "NY", "North Carolina": "NC", "North Dakota": "ND", Ohio: "OH", Oklahoma: "OK", Oregon: "OR", Pennsylvania: "PA", "Rhode Island": "RI", "South Carolina": "SC", "South Dakota": "SD", Tennessee: "TN", Texas: "TX", Utah: "UT", Vermont: "VT", Virginia: "VA", Washington: "WA", "West Virginia": "WV", Wisconsin: "WI", Wyoming: "WY" };
+      return (data.allStores || []).map((d) => ({
+        name: d.storeName || "",
+        address: d.street || "",
+        city: d.city || "",
+        state: stateMap[d.state] || d.state || "",
+        zip: d.zipCode || "",
+        country: "US",
+        phone: d.phone || "",
+        email: d.emailAddress || "",
+        latitude: d.latitude || "",
+        longitude: d.longitude || "",
+      }));
+    },
+  },
+
+  bomgaars: {
+    name: "Bomgaars",
+    type: "storepoint",
+    url: "https://www.bomgaars.com/graphql",
+    params: {},
+    fetchOverride: true,
+    async fetchData() {
+      const res = await fetch(this.url, {
+        method: "POST",
+        headers: { "store": "default", "content-type": "application/json" },
+        body: JSON.stringify({
+          query: `{ba_stores(pageSize:200){items{store_id name store_address store_city store_state store_zip phone_number email_address latitude longitude website_url}total_count}}`,
+        }),
+      });
+      return res.json();
+    },
+    parseResponse(data) {
+      return (data.data?.ba_stores?.items || []).map((d) => ({
+        name: (d.name || "").replace(/^\d+\s*-\s*/, "").trim(),
+        address: d.store_address || "",
+        city: d.store_city || "",
+        state: d.store_state || "",
+        zip: d.store_zip || "",
+        country: "US",
+        phone: d.phone_number || "",
+        email: d.email_address || "",
+        website: d.website_url || "",
+        latitude: d.latitude || "",
+        longitude: d.longitude || "",
+      }));
+    },
+  },
+
+  runnings: {
+    name: "Runnings",
+    type: "storepoint",
+    url: "https://www.runnings.com/graphql",
+    params: {},
+    fetchOverride: true,
+    async fetchData() {
+      const query = `query GetAllStores{stores(filter:{}pageSize:200 currentPage:1){items{id name latitude longitude address city region region_code postcode phone email}}}`;
+      const params = new URLSearchParams({ query, operationName: "GetAllStores", variables: "{}" });
+      const res = await fetch(`${this.url}?${params}`, {
+        headers: { store: "default", "content-type": "application/json" },
+      });
+      return res.json();
+    },
+    parseResponse(data) {
+      return (data.data?.stores?.items || []).map((d) => ({
+        name: d.name || "",
+        address: d.address || "",
+        city: d.city || "",
+        state: d.region_code || "",
+        zip: d.postcode || "",
+        country: "US",
+        phone: d.phone || "",
+        email: d.email || "",
+        latitude: d.latitude || "",
+        longitude: d.longitude || "",
+      }));
+    },
+  },
+
+  theisens: {
+    name: "Theisen's",
+    type: "storepoint",
+    url: "https://www.theisens.com/api/graphql",
+    params: {},
+    fetchOverride: true,
+    async fetchData() {
+      const query = `query storeLocatorStores($pageSize:Int$currentPage:Int$sortByDistance:Boolean$lat:String$lng:String$radius:Float$urlKey:String$attributes:[FilterAttributeInput]){storeLocatorStores(page_size:$pageSize current_page:$currentPage sort_by_distance:$sortByDistance lat:$lat lng:$lng radius:$radius url_key:$urlKey attributes:$attributes){items{store_id name country city zip state address lat lng phone email website}total_count}}`;
+      const variables = JSON.stringify({ currentPage: 1, lat: "", lng: "", pageSize: 200, radius: 10, sortByDistance: true, urlKey: null });
+      const params = new URLSearchParams({ query, operationName: "storeLocatorStores", variables });
+      const res = await fetch(`${this.url}?${params}`, {
+        headers: { "x-request-origin": "client", "x-pylot-backend": "theisens", store: "default" },
+      });
+      return res.json();
+    },
+    parseResponse(data) {
+      return (data.data?.storeLocatorStores?.items || []).map((d) => ({
+        name: d.name || "",
+        address: d.address || "",
+        city: d.city || "",
+        state: d.state || "",
+        zip: d.zip || "",
+        country: "US",
+        phone: d.phone || "",
+        email: d.email || "",
+        website: d.website || "",
+        latitude: d.lat || "",
+        longitude: d.lng || "",
+      }));
+    },
+  },
+
+  murdochs: {
+    name: "Murdoch's Ranch & Home Supply",
+    type: "storepoint",
+    url: "https://www.murdochs.com/FindInStore/GetAllStores",
+    params: {},
+    fetchOverride: true,
+    async fetchData() {
+      // Two-step: get CSRF token from stores page, then POST to API
+      const pageRes = await fetch("https://www.murdochs.com/stores/", {
+        headers: { "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" },
+      });
+      const html = await pageRes.text();
+      const cookies = pageRes.headers.getSetCookie?.() || [];
+      const cookieStr = cookies.map((c) => c.split(";")[0]).join("; ");
+      const tokenMatch = html.match(/RequestVerificationToken" type="hidden" value="([^"]+)"/);
+      if (!tokenMatch) throw new Error("Could not extract CSRF token from Murdoch's stores page");
+      const token = tokenMatch[1];
+      console.log(`  Got CSRF token: ${token.slice(0, 30)}...`);
+
+      const res = await fetch(this.url, {
+        method: "POST",
+        headers: {
+          requestverificationtoken: token,
+          "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          referer: "https://www.murdochs.com/stores/",
+          accept: "application/json, text/plain, */*",
+          "x-requested-with": "XMLHttpRequest",
+          cookie: cookieStr,
+        },
+      });
+      return res.json();
+    },
+    parseResponse(data) {
+      const raw = typeof data === "string" ? JSON.parse(data) : data;
+      return (raw.storesModel || []).map((d) => ({
+        name: d.storeName || "",
+        address: [d.address, d.address2].filter(Boolean).join(" "),
+        city: d.city || "",
+        state: d.state || "",
+        zip: d.zipCode || "",
+        country: "US",
+        phone: d.phone || "",
+        latitude: d.latitude || "",
+        longitude: d.longitude || "",
+      }));
+    },
+  },
+
+  atwoods: {
+    name: "Atwoods",
+    type: "storepoint",
+    url: "https://www.atwoods.com/api/storelocation/storelocations",
+    params: {},
+    fetchOverride: true,
+    async fetchData() {
+      // Two-step: get CSRF token + cookies from store-locator page, then GET API
+      const pageRes = await fetch("https://www.atwoods.com/store-locator/", {
+        headers: { "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" },
+      });
+      const html = await pageRes.text();
+      const cookies = pageRes.headers.getSetCookie?.() || [];
+      const cookieStr = cookies.map((c) => c.split(";")[0]).join("; ");
+      const tokenMatch = html.match(/RequestVerificationToken" type="hidden" value="([^"]+)"/);
+      if (!tokenMatch) throw new Error("Could not extract CSRF token from Atwoods store locator page");
+      const token = tokenMatch[1];
+      console.log(`  Got CSRF token: ${token.slice(0, 30)}...`);
+
+      const res = await fetch(`${this.url}?range=25000`, {
+        headers: {
+          requestverificationtoken: token,
+          "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          referer: "https://www.atwoods.com/store-locator/",
+          "x-requested-with": "XMLHttpRequest",
+          cookie: cookieStr,
+        },
+      });
+      return res.json();
+    },
+    parseResponse(data) {
+      return (data.stores || []).map((d) => ({
+        name: d.name || "",
+        address: d.address1 || "",
+        city: d.city || "",
+        state: d.state || "",
+        zip: d.postalCode || "",
+        country: "US",
+        phone: d.phoneNumber || "",
+        latitude: d.latitude || "",
+        longitude: d.longitude || "",
+      }));
+    },
+  },
+
+  gebos: {
+    name: "Gebo's",
+    type: "storepoint",
+    url: "https://www.gebos.com/locationquery.php",
+    params: {},
+    headers: {
+      "x-requested-with": "XMLHttpRequest",
+      accept: "application/json, text/javascript, */*; q=0.01",
+      referer: "https://www.gebos.com/store-locator/",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    },
+    parseResponse(data) {
+      return data.map((d) => ({
+        name: d.title || "",
+        address: [d.address, d.address2].filter(Boolean).join(" "),
+        city: d.city || "",
+        state: d.state || "",
+        zip: d.postal || "",
+        country: "US",
+        phone: d.phone || "",
+        latitude: d.lat || "",
+        longitude: d.lng || "",
+        manager: d.manager || "",
+        hours: d.hours1 || "",
+      }));
+    },
+  },
+
+  calranch: {
+    name: "CAL Ranch",
+    type: "storepoint",
+    url: "https://8pzvmj4bdw-dsn.algolia.net/1/indexes/*/queries",
+    params: {},
+    fetchOverride: true,
+    async fetchData() {
+      const res = await fetch(this.url, {
+        method: "POST",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          "x-algolia-application-id": "8PZVMJ4BDW",
+          "x-algolia-api-key": "f63cb6e4867bb439abde23d6dfb957b5",
+        },
+        body: JSON.stringify({
+          requests: [{ indexName: "Stores_CAL_Production", params: "hitsPerPage=100&query=" }],
+        }),
+      });
+      return res.json();
+    },
+    parseResponse(data) {
+      return (data.results?.[0]?.hits || []).map((d) => ({
+        name: d.name || "",
+        address: (d.address1 || "").replace(/,\s*$/, ""),
+        city: d.city || "",
+        state: d.state || "",
+        zip: d.zipCode || "",
+        country: "US",
+        phone: d.phoneNumber || "",
+        email: d.email || "",
+        latitude: d._geoloc?.lat || "",
+        longitude: d._geoloc?.lng || "",
+      }));
+    },
+  },
+
+  dbsupply: {
+    name: "D&B Supply",
+    type: "embedded",
+    url: "https://www.dbsupply.com/store-locator",
+    headers: {
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    },
+    extractDealers(html) {
+      // Store data is in __NEXT_DATA__ JSON blob
+      const m = html.match(/<script id="__NEXT_DATA__"[^>]*>(.*?)<\/script>/);
+      if (!m) return [];
+      const nextData = JSON.parse(m[1]);
+      return nextData?.props?.pageProps?.commonStaticData?.stores?.default?.allLocations?.items || [];
+    },
+    parseResponse(items) {
+      const stateMap = { Alabama: "AL", Alaska: "AK", Arizona: "AZ", Arkansas: "AR", California: "CA", Colorado: "CO", Connecticut: "CT", Delaware: "DE", Florida: "FL", Georgia: "GA", Hawaii: "HI", Idaho: "ID", Illinois: "IL", Indiana: "IN", Iowa: "IA", Kansas: "KS", Kentucky: "KY", Louisiana: "LA", Maine: "ME", Maryland: "MD", Massachusetts: "MA", Michigan: "MI", Minnesota: "MN", Mississippi: "MS", Missouri: "MO", Montana: "MT", Nebraska: "NE", Nevada: "NV", "New Hampshire": "NH", "New Jersey": "NJ", "New Mexico": "NM", "New York": "NY", "North Carolina": "NC", "North Dakota": "ND", Ohio: "OH", Oklahoma: "OK", Oregon: "OR", Pennsylvania: "PA", "Rhode Island": "RI", "South Carolina": "SC", "South Dakota": "SD", Tennessee: "TN", Texas: "TX", Utah: "UT", Vermont: "VT", Virginia: "VA", Washington: "WA", "West Virginia": "WV", Wisconsin: "WI", Wyoming: "WY" };
+      return items.map((d) => ({
+        name: d.store_name || "",
+        address: d.address || "",
+        city: d.city || "",
+        state: stateMap[d.region] || d.region || "",
+        zip: d.postcode || "",
+        country: "US",
+        phone: d.phone_number || "",
+        email: d.email || "",
+        latitude: d.latitude || "",
+        longitude: d.longitude || "",
+      }));
+    },
+  },
+
+  lmfleet: {
+    name: "L&M Fleet Supply",
+    type: "embedded",
+    url: "https://www.landmsupply.com/store-locator/",
+    headers: {
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    },
+    extractDealers(html) {
+      // Store data embedded in Magento Corra_Storelocator JS config
+      const m = html.match(/"location"\s*:\s*\[/);
+      if (!m) return [];
+      const start = html.indexOf("[", m.index);
+      let depth = 0;
+      let end = start;
+      for (let i = start; i < html.length; i++) {
+        if (html[i] === "[") depth++;
+        else if (html[i] === "]") depth--;
+        if (depth === 0) { end = i; break; }
+      }
+      return JSON.parse(html.slice(start, end + 1));
+    },
+    parseResponse(items) {
+      return items.map((d) => {
+        // City/state from name like "Ashland, WI"
+        const parts = (d.name || "").split(",").map((s) => s.trim());
+        return {
+          name: `L&M Fleet Supply - ${d.name || ""}`,
+          address: d.address || "",
+          city: parts[0] || d.city || "",
+          state: parts[1] || "",
+          zip: d.zip || "",
+          country: "US",
+          phone: d.phone || "",
+          email: d.email || "",
+          latitude: d.lat || "",
+          longitude: d.lng || "",
+        };
+      });
+    },
+  },
+
+  norbys: {
+    name: "Norby's Farm Fleet",
+    type: "embedded",
+    url: "https://www.norbysfarmfleet.com/locations.php",
+    headers: {
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    },
+    extractDealers(html) {
+      const dealers = [];
+      // Parse each location block: address, city, state, zip, phone, manager
+      const blocks = html.split(/<h[23][^>]*>/i).slice(1);
+      for (const block of blocks) {
+        const cityState = block.match(/^([^<]+)</)?.[1]?.trim();
+        if (!cityState) continue;
+        const addrMatch = block.match(/([\d][\w\s.]+(?:Street|Avenue|Road|Way|Drive|Parkway|Highway|Blvd|St|Ave|Rd|Dr|Hwy|Pkwy)[^<]*)/i);
+        const cszMatch = block.match(/,\s*([A-Z]{2})\s+(\d{5})/);
+        const phoneMatch = block.match(/\((\d{3})\)[\s-]*(\d{3})[\s-]*(\d{4})/);
+        const managerMatch = block.match(/Manager:\s*([^<\n]+)/i);
+        const city = cityState.replace(/,\s*[A-Z]{2}.*/, "").trim();
+        dealers.push({
+          name: `Norby's - ${city}`,
+          address: addrMatch?.[1]?.trim() || "",
+          city,
+          state: cszMatch?.[1] || "",
+          zip: cszMatch?.[2] || "",
+          phone: phoneMatch ? `(${phoneMatch[1]}) ${phoneMatch[2]}-${phoneMatch[3]}` : "",
+          manager: managerMatch?.[1]?.trim() || "",
+        });
+      }
+      return dealers;
+    },
+    parseResponse(dealers) {
+      return dealers.filter((d) => d.state).map((d) => ({
+        ...d,
+        country: "US",
+        latitude: "",
+        longitude: "",
+      }));
+    },
+  },
+
+  farmandhome: {
+    name: "Farm & Home Supply",
+    type: "embedded",
+    url: "https://www.farmandhomesupply.com/store-locations",
+    headers: {
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    },
+    extractDealers(html) {
+      // Store data is in a JSON array embedded in page JS
+      const m = html.match(/\[\s*\{[^[]*?"store_code"\s*:\s*"\d+"[^]*?\}\s*\]/);
+      if (!m) return [];
+      try { return JSON.parse(m[0]); } catch { return []; }
+    },
+    parseResponse(items) {
+      return items
+        .filter((d) => d.type !== "corporate" && d.details_url)
+        .map((d) => {
+          const addrMatch = (d.address || "").match(/^(.+?),?\s+([A-Za-z\s.]+?),?\s*([A-Z]{2})\.?\s+(\d{5})/);
+          const stateMap = { Illinois: "IL", Missouri: "MO", Iowa: "IA" };
+          // Fallback: extract city from name ("Alton, IL" or "Cottleville MO")
+          const nameCity = (d.name || "").replace(/,?\s*[A-Z]{2}.*$/, "").replace(/\s*\(.*\)/, "").trim();
+          const zipFromAddr = (d.address || "").match(/(\d{5})/)?.[1] || "";
+          return {
+            name: `Farm & Home Supply - ${d.name || ""}`,
+            address: addrMatch?.[1]?.trim() || (d.address || "").replace(/,?\s*\d{5}.*$/, "").trim(),
+            city: addrMatch?.[2]?.trim() || nameCity,
+            state: addrMatch?.[3] || stateMap[d.state] || d.state || "",
+            zip: addrMatch?.[4] || zipFromAddr,
+            country: "US",
+            phone: d.phone || "",
+            latitude: d.lat || "",
+            longitude: d.lng || "",
+          };
+        });
+    },
+  },
+
+  shiptons: {
+    name: "Shipton's Big R",
+    type: "embedded",
+    url: "https://shiptonsbigr.com/locations",
+    headers: {
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    },
+    extractDealers(html) {
+      const stateMap = { Montana: "MT", Wyoming: "WY", Idaho: "ID" };
+      const dealers = [];
+      // Parse JSON-LD @graph array
+      const ldMatch = html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/);
+      if (ldMatch) {
+        const data = JSON.parse(ldMatch[1]);
+        const items = data["@graph"] || (data["@type"] ? [data] : []);
+        // Also extract lat/lng from separate data in the page
+        const coords = [...html.matchAll(/"lat":"([\d.-]+)","lng":"([\d.-]+)"/g)];
+        for (let i = 0; i < items.length; i++) {
+          const d = items[i];
+          const addr = d.address || {};
+          dealers.push({
+            name: d.name || "",
+            address: addr.streetAddress || "",
+            city: addr.addressLocality || "",
+            state: stateMap[addr.addressRegion] || addr.addressRegion || "",
+            zip: addr.postalCode || "",
+            phone: Array.isArray(d.telephone) ? d.telephone[0] : d.telephone || "",
+            latitude: coords[i]?.[1] || "",
+            longitude: coords[i]?.[2] || "",
+          });
+        }
+      }
+      return dealers;
+    },
+    parseResponse(dealers) {
+      return dealers.map((d) => ({ ...d, country: "US" }));
+    },
+  },
+
+  farmking: {
+    name: "Farm King",
+    type: "embedded",
+    url: "https://www.farmking.com/Home/Contact",
+    headers: {
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    },
+    extractDealers(html) {
+      const dealers = [];
+      // Parse table rows: <h4>City</h4> <span>Address</span><br/> <span>City, ST ZIP</span>
+      // Each <tr> contains location, hours, manager, phone in separate <td>s
+      const trPattern = /<tr>\s*([\s\S]*?)<\/tr>/g;
+      let m;
+      while ((m = trPattern.exec(html)) !== null) {
+        const row = m[1];
+        const h4Match = row.match(/<h4[^>]*>([^<]+)<\/h4>/);
+        if (!h4Match) continue;
+        const city = h4Match[1].trim();
+        const spanMatches = [...row.matchAll(/<span[^>]*>([^<]+)<\/span>/g)];
+        const address = spanMatches[0]?.[1]?.trim() || "";
+        const csz = spanMatches[1]?.[1]?.trim() || "";
+        const cszMatch = csz.match(/([^,]+),\s*([A-Z]{2})\s+(\d{5})/);
+        const phoneMatch = row.match(/\((\d{3})\)\s*(\d{3})[-.](\d{4})/);
+        const tds = [...row.matchAll(/<td>([\s\S]*?)<\/td>/g)];
+        const managerTd = tds[2]?.[1]?.trim() || "";
+        dealers.push({
+          name: `Farm King - ${city}`,
+          address,
+          city: cszMatch?.[1]?.trim() || city,
+          state: cszMatch?.[2] || "",
+          zip: cszMatch?.[3] || "",
+          phone: phoneMatch ? `(${phoneMatch[1]}) ${phoneMatch[2]}-${phoneMatch[3]}` : "",
+          manager: managerTd.replace(/<[^>]+>/g, "").trim(),
+        });
+      }
+      return dealers;
+    },
+    parseResponse(dealers) {
+      return dealers.map((d) => ({ ...d, country: "US", latitude: "", longitude: "" }));
+    },
+  },
+
+  north40: {
+    name: "North 40 Outfitters",
+    type: "storepoint",
+    url: "https://places.googleapis.com/v1/places:searchText",
+    params: {},
+    headers: {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Key": process.env.GOOGLE_PLACES_API_KEY,
+      "X-Goog-FieldMask": "places.displayName,places.formattedAddress,places.location,places.nationalPhoneNumber,places.id",
+    },
+    fetchOverride: true,
+    async fetchData() {
+      const seen = new Set();
+      const allStores = [];
+      // North 40 only operates in MT, ID, WA — use targeted regional zips
+      const zips = ["59401","59501","83814","83852","83501","99114","99021","98837","98841","99212","99224"];
+      for (let i = 0; i < zips.length; i++) {
+        try {
+          const res = await fetch(this.url, {
+            method: "POST",
+            headers: this.headers,
+            body: JSON.stringify({ textQuery: `North 40 Outfitters near ${zips[i]}`, maxResultCount: 20 }),
+          });
+          const data = await res.json();
+          for (const p of (data.places || [])) {
+            if (p.id && !seen.has(p.id)) { seen.add(p.id); allStores.push(p); }
+          }
+        } catch (e) {}
+        if ((i + 1) % 5 === 0 || i === zips.length - 1) {
+          process.stdout.write(`\r  ${i + 1}/${zips.length} zips | ${allStores.length} unique stores`);
+        }
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      console.log();
+      return allStores;
+    },
+    parseResponse(data) {
+      return (Array.isArray(data) ? data : [])
+        .filter((p) => {
+          const name = (p.displayName?.text || "").toLowerCase();
+          return !name.includes("office") && !name.includes("distribution") && !name.includes("warehouse");
+        })
+        .map((p) => {
+          const addr = p.formattedAddress || "";
+          const parts = addr.split(", ");
+          const street = parts[0] || "";
+          const city = parts[1] || "";
+          const stateZip = (parts[2] || "").split(" ");
+          const state = stateZip[0] || "";
+          const zip = stateZip[1] || "";
+          return {
+            name: p.displayName?.text || "",
+            placeId: p.id || "",
+            address: street,
+            city,
+            state,
+            zip,
+            country: "US",
+            phone: p.nationalPhoneNumber || "",
+            latitude: p.location?.latitude || "",
+            longitude: p.location?.longitude || "",
+          };
+        });
     },
   },
 };

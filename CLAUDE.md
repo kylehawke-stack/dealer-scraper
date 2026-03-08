@@ -75,6 +75,16 @@ output/            — Scraped CSV files (gitignored)
 | Lowe's | 1,762 | storepoint (two-phase) | `lowes.com/Lowes-Stores/{State}/{ST}` → `/store/api/{id}` for lat/lng |
 | Home Depot | 1,533 | storepoint (Google Places) | `places.googleapis.com/v1/places:searchText` — zip grid dedup by place ID |
 
+## Completed Brands — Mirka Channel Strategy
+
+| Brand | Stores | Type | API Endpoint |
+|-------|--------|------|-------------|
+| Festool | 1,773 | storepoint (Locally.com) | `festool.locally.com/stores/conversion_data` (company_id=261617, full US bounds) |
+| Grainger | 323 | storepoint (Google Places) | `places.googleapis.com/v1/places:searchText` — zip grid dedup by place ID |
+| Fastenal | 759 | storepoint (Google Places) | `places.googleapis.com/v1/places:searchText` — zip grid dedup by place ID |
+| Woodcraft | 64 | storepoint (StoreMapper) | `storemapper-herokuapp-com.global.ssl.fastly.net/api/users/21588-nANJhE9qGU2lPBYt/stores.js` |
+| Rockler | 43 | storepoint (Magento API) | `rockler.com/locator/store/nearyou?limit=100` |
+
 ## Awaiting Rate Limit Reset
 
 ### Kubota — CODE READY, IP BLOCKED
@@ -169,7 +179,7 @@ Search demand for "[brand] dealer/store near me" (normalized, STIHL = 100):
 ## Competitive Context
 - **ScrapeHero** has 5,125 datasets, 503 dealer-specific, priced $5-$100 per dataset
 - Our advantage: fresher data (weekly vs monthly), we already match/exceed their counts
-- **150,034 total records** across 37 completed brands (21 equipment + 6 retailers + 7 hardware + 3 misc)
+- **~153,000 total records** across 42 completed brands (21 equipment + 6 retailers + 7 hardware + 5 Mirka channel + 3 misc)
 - Target categories: Lawn/Farm Equipment, Construction/Heavy Equipment, Powersports, Retail Chains, Hardware Stores
 
 ## Key Commands
