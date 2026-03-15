@@ -18,6 +18,10 @@ jobs:
             needs_browser: false
           - brand: dewalt
             needs_browser: false
+          - brand: traeger
+            needs_browser: false
+          - brand: gozney
+            needs_browser: false
           # Brands that need puppeteer (headless browser):
           # - brand: acehardware
           #   needs_browser: true
