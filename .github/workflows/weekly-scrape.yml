@@ -11,9 +11,18 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        brand: [rcmowers, stihl, dewalt]
+        include:
+          - brand: rcmowers
+            needs_browser: false
+          - brand: stihl
+            needs_browser: false
+          - brand: dewalt
+            needs_browser: false
+          # Brands that need puppeteer (headless browser):
+          # - brand: acehardware
+          #   needs_browser: true
     env:
-      PUPPETEER_SKIP_DOWNLOAD: 'true'
+      PUPPETEER_SKIP_DOWNLOAD: ${{ matrix.needs_browser == false && 'true' || '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -22,6 +31,10 @@ jobs:
           node-version: '22'
 
       - run: npm ci
+
+      - name: Install browser system dependencies
+        if: matrix.needs_browser
+        run: npx puppeteer browsers install chrome --install-deps
 
       - name: Run scraper for ${{ matrix.brand }}
         run: node scrape.js ${{ matrix.brand }}
