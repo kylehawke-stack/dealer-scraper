@@ -13,6 +13,9 @@
 
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import dotenv from "dotenv";
 import { LAT_LNG_GRID } from "./lat-lng-grid.js";
 import { ZIP_GRID } from "./zip-grid.js";
@@ -3190,7 +3193,7 @@ async function scrape(configName) {
   // Write CSV
   const timestamp = new Date().toISOString().split("T")[0];
   const filename = `${configName}-dealers-${timestamp}.csv`;
-  const outputPath = path.join("/home/brady/dealer-scraper/output", filename);
+  const outputPath = path.join(__dirname, "output", filename);
 
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   fs.writeFileSync(outputPath, toCSV(unique));
