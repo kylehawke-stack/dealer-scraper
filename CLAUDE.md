@@ -85,6 +85,12 @@ output/            — Scraped CSV files (gitignored)
 | Woodcraft | 64 | storepoint (StoreMapper) | `storemapper-herokuapp-com.global.ssl.fastly.net/api/users/21588-nANJhE9qGU2lPBYt/stores.js` |
 | Rockler | 43 | storepoint (Magento API) | `rockler.com/locator/store/nearyou?limit=100` |
 
+## Completed Brands — Grills/BBQ
+
+| Brand | Stores | Type | API Endpoint |
+|-------|--------|------|-------------|
+| Traeger | 7,929 | storepoint (Locally.com) | `www.locally.com/stores/conversion_data` (company_id=112256, full US bounds) |
+
 ## Awaiting Rate Limit Reset
 
 ### Kubota — CODE READY, IP BLOCKED

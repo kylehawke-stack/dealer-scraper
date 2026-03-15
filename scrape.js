@@ -2328,6 +2328,52 @@ const CONFIGS = {
     },
   },
 
+  traeger: {
+    name: "Traeger",
+    type: "storepoint", // Locally.com API, single call gets all ~7,929 US dealers
+    url: "https://www.locally.com/stores/conversion_data",
+    params: {},
+    fetchOverride: true,
+    async fetchData() {
+      const params = new URLSearchParams({
+        has_data: "true",
+        company_id: "112256",
+        inline: "1",
+        sort_by: "proximity",
+        no_variants: "0",
+        dealers_company_id: "112256",
+        only_store_id: "false",
+        uses_alt_coords: "false",
+        q: "false",
+        map_ne_lat: "72",
+        map_ne_lng: "-60",
+        map_sw_lat: "18",
+        map_sw_lng: "-180",
+      });
+      const res = await fetch(`${this.url}?${params}`, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        },
+      });
+      return res.json();
+    },
+    parseResponse(data) {
+      return (data.markers || [])
+        .filter((d) => d.country === "US")
+        .map((d) => ({
+          name: d.name || "",
+          address: d.address || "",
+          city: d.city || "",
+          state: d.state || "",
+          zip: d.zip || "",
+          country: "US",
+          phone: d.phone || "",
+          latitude: d.lat || "",
+          longitude: d.lng || "",
+        }));
+    },
+  },
+
   // --- Mid-States Distributing Members ---
 
   buchheit: {
