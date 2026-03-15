@@ -90,6 +90,7 @@ output/            — Scraped CSV files (gitignored)
 | Brand | Stores | Type | API Endpoint |
 |-------|--------|------|-------------|
 | Traeger | 7,929 | storepoint (Locally.com) | `www.locally.com/stores/conversion_data` (company_id=112256, full US bounds) |
+| Gozney | 3,957 | storepoint (Locally.com) | `gozney.locally.com/stores/conversion_data` (company_id=191894, full US bounds, dealer tiers: Platinum/Gold/Silver/Bronze) |
 
 ## Awaiting Rate Limit Reset
 
