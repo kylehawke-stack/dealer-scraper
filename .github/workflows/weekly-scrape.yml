@@ -22,6 +22,8 @@ jobs:
             needs_browser: false
           - brand: gozney
             needs_browser: false
+          - brand: weber
+            needs_browser: false
           # Brands that need puppeteer (headless browser):
           # - brand: acehardware
           #   needs_browser: true

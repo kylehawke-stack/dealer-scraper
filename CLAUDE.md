@@ -91,6 +91,7 @@ output/            — Scraped CSV files (gitignored)
 |-------|--------|------|-------------|
 | Traeger | 7,929 | storepoint (Locally.com) | `www.locally.com/stores/conversion_data` (company_id=112256, full US bounds) |
 | Gozney | 3,957 | storepoint (Locally.com) | `gozney.locally.com/stores/conversion_data` (company_id=191894, full US bounds, dealer tiers: Platinum/Gold/Silver/Bronze) |
+| Weber | 15,129 | grid (Demandware) | `weber.com/on/demandware.store/Sites-US-Site/en_US/Stores-FindStores` (lat/long/radius=100, same pattern as Cub Cadet) |
 
 ## Awaiting Rate Limit Reset
 

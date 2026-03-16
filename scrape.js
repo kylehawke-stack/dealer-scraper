@@ -2435,6 +2435,49 @@ const CONFIGS = {
     },
   },
 
+  weber: {
+    name: "Weber",
+    type: "grid", // Demandware API, same pattern as Cub Cadet/Troy-Bilt
+    baseUrl:
+      "https://www.weber.com/on/demandware.store/Sites-US-Site/en_US/Stores-FindStores",
+    searchRadiusMiles: 100,
+    headers: {
+      accept: "application/json",
+      "x-requested-with": "XMLHttpRequest",
+      "user-agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    },
+    buildUrl(lat, lng) {
+      const params = new URLSearchParams({
+        showMap: "true",
+        radius: this.searchRadiusMiles.toString(),
+        lat: lat.toString(),
+        long: lng.toString(),
+      });
+      return `${this.baseUrl}?${params}`;
+    },
+    parseResponse(data) {
+      return (data.stores || []).map((d) => ({
+        name: d.name || "",
+        dealerId: d.ID || "",
+        address: [d.address1, d.address2].filter(Boolean).join(" "),
+        city: d.city || "",
+        state: d.stateCode || "",
+        zip: d.postalCode || "",
+        country: d.countryCode || "US",
+        phone: d.phone || "",
+        email: d.email || "",
+        website: d.dealerURL || "",
+        latitude: d.latitude || "",
+        longitude: d.longitude || "",
+        storeType: (d.storeTypes || []).map((t) => t.displayValue).join(", "),
+        dealerOfTheYear: d.dealerOfTheYear || false,
+        isCbw: d.isCbw || false,
+        isWEWStore: d.isWEWStore || false,
+      }));
+    },
+  },
+
   // --- Mid-States Distributing Members ---
 
   buchheit: {
